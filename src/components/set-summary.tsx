@@ -10,7 +10,7 @@ export function SetSummary({
   sets,
   recordIndexes = [],
 }: {
-  sets: Pick<WorkoutSet, 'reps' | 'weightKg'>[];
+  sets: (Pick<WorkoutSet, 'reps' | 'weightKg'> & Partial<Pick<WorkoutSet, 'setIndex' | 'dropIndex'>>)[];
   recordIndexes?: number[];
 }) {
   return (
@@ -18,10 +18,11 @@ export function SetSummary({
       {sets.map((s, i) => (
         <View key={i} style={styles.row}>
           <Txt tone="muted" style={styles.index}>
-            {i + 1}
+            {s.dropIndex ? '↳' : (s.setIndex ?? i + 1)}
           </Txt>
           <Txt style={{ fontVariant: ['tabular-nums'] }}>
             {formatKg(s.weightKg)} kg × {s.reps}
+            {s.dropIndex ? <Txt tone="muted"> · drop {s.dropIndex}</Txt> : null}
           </Txt>
           {recordIndexes.includes(i) && <Badge label="PR" />}
         </View>

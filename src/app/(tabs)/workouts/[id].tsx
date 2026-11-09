@@ -20,9 +20,7 @@ export default function WorkoutDetailScreen() {
     // For each exercise, which sets were personal records at the time of this workout.
     const records = await Promise.all(
       blocks.map(async (b) => {
-        const earlier = (await exerciseSessions(db, b.exercise.id)).filter(
-          (s) => s.date < workout.startedAt,
-        );
+        const earlier = (await exerciseSessions(db, b.exercise.id)).filter((s) => s.date < workout.startedAt);
         return newRecordIndexes(b.sets, earlier);
       }),
     );
@@ -54,8 +52,11 @@ export default function WorkoutDetailScreen() {
       <Stack.Screen options={{ title: formatDay(workout.startedAt) }} />
 
       <View style={styles.stats}>
-        <Stat value={workout.finishedAt ? formatDuration(workout.startedAt, workout.finishedAt) : '—'} label="Duration" />
-        <Stat value={String(allSets.length)} label="Sets" />
+        <Stat
+          value={workout.finishedAt ? formatDuration(workout.startedAt, workout.finishedAt) : '—'}
+          label="Duration"
+        />
+        <Stat value={String(allSets.filter((s) => s.dropIndex === 0).length)} label="Sets" />
         <Stat value={`${formatKg(volume(allSets))}`} label="kg lifted" />
       </View>
 

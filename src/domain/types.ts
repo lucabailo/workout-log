@@ -1,3 +1,5 @@
+import type { ExercisePlan, SetKind } from './plan';
+
 export const MUSCLE_GROUPS = [
   'Chest',
   'Back',
@@ -27,6 +29,7 @@ export interface Workout {
   finishedAt: string | null; // null while the workout is in progress
   notes: string | null;
   routineId: number | null; // the routine it was started from, if any
+  programId: number | null; // the program it was started from, if any
 }
 
 export interface WorkoutSet {
@@ -37,6 +40,9 @@ export interface WorkoutSet {
   reps: number;
   weightKg: number;
   completed: boolean;
+  kind: SetKind;
+  /** 0 for a normal set or the first part of a drop set; 1, 2… for the drops after it. */
+  dropIndex: number;
 }
 
 /** A finished workout as shown in the history list. */
@@ -69,6 +75,8 @@ export interface RoutineExercise {
   restSeconds: number;
   /** Done back to back with the next exercise of the routine (no rest in between). */
   supersetWithNext: boolean;
+  /** Per-set reps, drop/max sets, progression. A plain "sets × reps" plan when nothing special. */
+  plan: ExercisePlan;
 }
 
 /** A day of the user's plan ("Push day"). */
@@ -82,6 +90,16 @@ export interface Routine {
 /** A routine as shown in the list, with when it was last done. */
 export interface RoutineSummary extends Routine {
   lastDone: string | null;
+}
+
+/** Routines done in rotation (D → E → F…), optionally after some done once (A, B, C). */
+export interface Program {
+  id: number;
+  name: string;
+  intro: { routineId: number; name: string }[];
+  rotation: { routineId: number; name: string }[];
+  /** Program workouts finished so far (or set by hand): decides which routine is next. */
+  position: number;
 }
 
 /** A body measurement; everything except the weight is optional (smart-scale values). */

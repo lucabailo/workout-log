@@ -22,6 +22,9 @@ Designed first in Figma (wireframes → colour system → hi-fi screens in light
 - **Your plan as routines:** write each day once (Push, Pull, Legs…) with sets, rep range, optional target weight and rest time per exercise
 - **Start a routine in one tap:** every set is created up front, pre-filled with the target (or last time's weight); the rest timer uses each exercise's rest time
 - **Summary after each workout:** duration, volume compared to the last time you did that routine, new records, and an offer to raise the routine's targets when you lifted more
+- **Advanced sets:** different reps on every set (12-9-6-6), drop sets (6+6+6, with suggested lighter weights), max-rep sets (3 × MAX) and a note per exercise
+- **Progressions:** an exercise can change every time its routine is done (4 × 12 → 4 × 9 → 4 × 6 → 4 × 3, then again), with the load in kg or in % of your one-rep max (estimated from your history or typed in)
+- **Programs:** put routines in a rotation (D → E → F → … → D) with optional routines done only once at the start; the app always shows which one is next
 - **Supersets:** link exercises in a routine (A1, A2…); ticking a set in a superset skips the rest timer until the round is done
 - **Never lose track of a workout:** a mini bar above the tabs shows the timer and the next set from any screen; a workout left open for hours asks whether to resume, save it (ending at the last ticked set) or discard it
 - **Log a workout:** or start an empty one and add exercises as you go; fill in weight and reps and tick each set off

@@ -49,6 +49,8 @@ export default function RootLayout() {
             />
             <Stack.Screen name="pick-exercise" options={{ presentation: 'modal', title: 'Add exercise' }} />
             <Stack.Screen name="routine-edit" options={{ presentation: 'fullScreenModal', title: 'Routine' }} />
+            <Stack.Screen name="exercise-targets" options={{ presentation: 'modal', title: 'Targets' }} />
+            <Stack.Screen name="program-edit" options={{ presentation: 'fullScreenModal', title: 'Program' }} />
             <Stack.Screen name="log-measurement" options={{ presentation: 'modal', title: 'Log measurement' }} />
           </Stack>
         </ThemeProvider>

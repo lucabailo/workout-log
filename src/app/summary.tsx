@@ -38,10 +38,7 @@ export default function SummaryScreen() {
       }),
     );
     const plan = await workoutPlan(db, id);
-    const updates = suggestedTargetUpdates(
-      [...plan.values()],
-      new Map(blocks.map((b) => [b.exercise.id, b.sets])),
-    );
+    const updates = suggestedTargetUpdates([...plan.values()], new Map(blocks.map((b) => [b.exercise.id, b.sets])));
     const previous = workout.routineId ? await previousRoutineVolume(db, workout.routineId, workout.startedAt) : null;
     return {
       workout,
@@ -79,7 +76,11 @@ export default function SummaryScreen() {
 
   async function applyTargets() {
     if (!workout.routineId) return;
-    await updateRoutineTargets(db, workout.routineId, updates.map((u) => ({ exerciseId: u.exerciseId, targetKg: u.toKg })));
+    await updateRoutineTargets(
+      db,
+      workout.routineId,
+      updates.map((u) => ({ exerciseId: u.exerciseId, targetKg: u.toKg })),
+    );
     setTargetsDone('updated');
   }
 
@@ -105,7 +106,7 @@ export default function SummaryScreen() {
 
         <View style={styles.stats}>
           <Stat value={formatDuration(workout.startedAt, workout.finishedAt!)} label="Duration" />
-          <Stat value={String(sets.length)} label="Sets" />
+          <Stat value={String(sets.filter((s) => s.dropIndex === 0).length)} label="Sets" />
           <Stat value={formatKg(total)} label="kg lifted" />
         </View>
         {diff !== null && diff !== 0 && (
@@ -134,11 +135,16 @@ export default function SummaryScreen() {
             <Txt variant="heading">Update {routineName} with today&apos;s weights?</Txt>
             {updates.map((u) => (
               <Txt key={u.exerciseId} tone="muted">
-                {u.name}   {formatKg(u.fromKg)} → {formatKg(u.toKg)} kg
+                {u.name} {formatKg(u.fromKg)} → {formatKg(u.toKg)} kg
               </Txt>
             ))}
             <View style={styles.actions}>
-              <Button title="Keep as is" variant="secondary" style={{ flex: 1 }} onPress={() => setTargetsDone('kept')} />
+              <Button
+                title="Keep as is"
+                variant="secondary"
+                style={{ flex: 1 }}
+                onPress={() => setTargetsDone('kept')}
+              />
               <Button title="Update" style={{ flex: 1 }} onPress={applyTargets} />
             </View>
           </Card>
@@ -165,7 +171,14 @@ export default function SummaryScreen() {
 
 const styles = StyleSheet.create({
   hero: { alignItems: 'center', gap: Spacing.xs, paddingTop: Spacing.md },
-  check: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.sm },
+  check: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.sm,
+  },
   stats: { flexDirection: 'row', gap: Spacing.sm },
   actions: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.xs },
   notes: {

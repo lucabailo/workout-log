@@ -14,29 +14,32 @@ interface Props {
   onChange: (changes: { reps?: number; weightKg?: number }) => void;
   onToggle: () => void;
   onDelete: () => void;
+  /** A drop after the first part of a drop set: no tick of its own (the first part ticks the chain). */
+  drop?: boolean;
 }
 
 /** One editable row of the active workout: set number, last time, weight, reps, done. */
-export function SetRow({ set, previous, isRecord, onChange, onToggle, onDelete }: Props) {
+export function SetRow({ set, previous, isRecord, onChange, onToggle, onDelete, drop = false }: Props) {
   const t = useTheme();
   const [weight, setWeight] = useState(set.weightKg ? String(set.weightKg) : '');
   const [reps, setReps] = useState(set.reps ? String(set.reps) : '');
 
   const done = set.completed;
-  const inputStyle = [
-    styles.input,
-    { backgroundColor: done ? 'transparent' : t.surfaceAlt, color: t.text },
-  ];
+  const inputStyle = [styles.input, { backgroundColor: done ? 'transparent' : t.surfaceAlt, color: t.text }];
 
   return (
     <View style={[styles.row, done && { backgroundColor: t.successSoft }]}>
       <Pressable onLongPress={onDelete} style={styles.indexCell} accessibilityHint="Long press to delete this set">
         <Txt variant="small" tone="muted" style={{ fontWeight: '700' }}>
-          {set.setIndex}
+          {drop ? '↳' : set.setIndex}
         </Txt>
       </Pressable>
       <View style={styles.prevCell}>
-        {isRecord && done ? (
+        {drop ? (
+          <Txt variant="small" tone="muted">
+            drop {set.dropIndex}
+          </Txt>
+        ) : isRecord && done ? (
           <Badge label="PR" />
         ) : (
           <Txt variant="small" tone="muted" numberOfLines={1}>
@@ -54,7 +57,7 @@ export function SetRow({ set, previous, isRecord, onChange, onToggle, onDelete }
         keyboardType="decimal-pad"
         placeholder={previous ? formatKg(previous.weightKg) : 'kg'}
         placeholderTextColor={t.textMuted}
-        accessibilityLabel={`Set ${set.setIndex} weight in kilograms`}
+        accessibilityLabel={`Set ${set.setIndex}${drop ? ` drop ${set.dropIndex}` : ''} weight in kilograms`}
         selectTextOnFocus
       />
       <TextInput
@@ -65,19 +68,23 @@ export function SetRow({ set, previous, isRecord, onChange, onToggle, onDelete }
           onChange({ reps: Math.round(parseNumber(text)) });
         }}
         keyboardType="number-pad"
-        placeholder={previous ? String(previous.reps) : 'reps'}
+        placeholder={set.kind === 'max' ? 'max' : previous ? String(previous.reps) : 'reps'}
         placeholderTextColor={t.textMuted}
-        accessibilityLabel={`Set ${set.setIndex} repetitions`}
+        accessibilityLabel={`Set ${set.setIndex}${drop ? ` drop ${set.dropIndex}` : ''} repetitions`}
         selectTextOnFocus
       />
-      <Pressable
-        onPress={onToggle}
-        accessibilityRole="checkbox"
-        accessibilityState={{ checked: done }}
-        accessibilityLabel={`Set ${set.setIndex} done`}
-        style={[styles.check, { backgroundColor: done ? t.success : t.surfaceAlt }]}>
-        <Text style={{ color: done ? '#fff' : t.textMuted, fontWeight: '800', fontSize: 16 }}>✓</Text>
-      </Pressable>
+      {drop ? (
+        <View style={{ width: 40 }} />
+      ) : (
+        <Pressable
+          onPress={onToggle}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: done }}
+          accessibilityLabel={`Set ${set.setIndex} done`}
+          style={[styles.check, { backgroundColor: done ? t.success : t.surfaceAlt }]}>
+          <Text style={{ color: done ? '#fff' : t.textMuted, fontWeight: '800', fontSize: 16 }}>✓</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -95,7 +102,9 @@ export function SetHeader({ loadType = 'barbell' }: { loadType?: LoadType }) {
           key={i}
           variant="label"
           tone="muted"
-          style={[i === 0 ? styles.indexCell : i === 1 ? styles.prevCell : i === 4 ? { width: 40 } : styles.headerInput]}>
+          style={[
+            i === 0 ? styles.indexCell : i === 1 ? styles.prevCell : i === 4 ? { width: 40 } : styles.headerInput,
+          ]}>
           {label}
         </Txt>
       ))}

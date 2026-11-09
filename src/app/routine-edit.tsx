@@ -3,29 +3,17 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
+import { Mini } from '@/components/mini-field';
 import { Button, Card, EmptyState, Field, Loading, Screen, SectionLabel, Txt } from '@/components/ui';
 import { DEFAULT_REST_SECONDS, Radius, Spacing } from '@/constants/theme';
 import { deleteRoutine, getRoutine, getSettings, listExercises, saveRoutine } from '@/db/repository';
 import { formatKg, formatReps, formatRest, parseNumber, parseReps, parseRest } from '@/domain/format';
+import { defaultPlan, describePlan, isSimplePlan } from '@/domain/plan';
 import { supersetLabels } from '@/domain/routines';
-import type { LoadType } from '@/domain/types';
 import { useTheme } from '@/hooks/use-theme';
 import { confirm } from '@/lib/confirm';
 import { pickExercise } from '@/lib/exercise-picker';
-
-/** One exercise in the editor. Numbers stay text until saving, so typing "6-" is allowed. */
-interface Row {
-  key: number;
-  exerciseId: number;
-  name: string;
-  loadType: LoadType;
-  sets: string;
-  reps: string;
-  kg: string;
-  rest: string;
-  /** Done back to back with the next row (no rest in between). */
-  superset: boolean;
-}
+import { editTargets, type ExerciseDraft as Row } from '@/lib/targets-editor';
 
 let nextKey = 1;
 
@@ -66,6 +54,7 @@ export default function RoutineEditScreen() {
             kg: e.targetKg === null ? '' : formatKg(e.targetKg).replace(',', ''),
             rest: formatRest(e.restSeconds).replace(' s', ''),
             superset: e.supersetWithNext,
+            plan: e.plan,
           })),
         );
       }
@@ -118,6 +107,7 @@ export default function RoutineEditScreen() {
             kg: '',
             rest: formatRest(defaultRest).replace(' s', ''),
             superset: false,
+            plan: defaultPlan(),
           },
         ]);
         setDirty(true);
@@ -145,6 +135,7 @@ export default function RoutineEditScreen() {
         // the rest after a superset exercise is skipped, so it is stored as 0
         restSeconds: r.superset ? 0 : rest,
         supersetWithNext: r.superset,
+        plan: r.plan,
       });
     }
     await saveRoutine(db, { id, name, notes, exercises });
@@ -221,34 +212,51 @@ export default function RoutineEditScreen() {
                     onPress={() => change(rows.filter((x) => x.key !== r.key))}
                   />
                 </View>
-                <View style={styles.targets}>
-                  <Mini
-                    label="Sets"
-                    value={r.sets}
-                    onChange={(sets) => update(r.key, { sets })}
-                    keyboard="number-pad"
-                  />
-                  <Mini
-                    label="Reps"
-                    value={r.reps}
-                    onChange={(reps) => update(r.key, { reps })}
-                    keyboard="numbers-and-punctuation"
-                  />
-                  <Mini
-                    label={r.loadType === 'bodyweight' ? '+Kg' : r.loadType === 'dumbbell' ? 'Kg/hand' : 'Kg'}
-                    value={r.kg}
-                    placeholder="—"
-                    onChange={(kg) => update(r.key, { kg })}
-                    keyboard="decimal-pad"
-                  />
-                  <Mini
-                    label="Rest"
-                    value={r.superset ? '—' : r.rest}
-                    onChange={(rest) => update(r.key, { rest })}
-                    keyboard="numbers-and-punctuation"
-                    editable={!r.superset}
-                  />
-                </View>
+                {isSimplePlan(r.plan) ? (
+                  <View style={styles.targets}>
+                    <Mini
+                      label="Sets"
+                      value={r.sets}
+                      onChange={(sets) => update(r.key, { sets })}
+                      keyboard="number-pad"
+                    />
+                    <Mini
+                      label="Reps"
+                      value={r.reps}
+                      onChange={(reps) => update(r.key, { reps })}
+                      keyboard="numbers-and-punctuation"
+                    />
+                    <Mini
+                      label={r.loadType === 'bodyweight' ? '+Kg' : r.loadType === 'dumbbell' ? 'Kg/hand' : 'Kg'}
+                      value={r.kg}
+                      placeholder="—"
+                      onChange={(kg) => update(r.key, { kg })}
+                      keyboard="decimal-pad"
+                    />
+                    <Mini
+                      label="Rest"
+                      value={r.superset ? '—' : r.rest}
+                      onChange={(rest) => update(r.key, { rest })}
+                      keyboard="numbers-and-punctuation"
+                      editable={!r.superset}
+                    />
+                  </View>
+                ) : (
+                  <PlanSummary row={r} />
+                )}
+                {r.plan.note && (
+                  <Txt variant="small" tone="muted">
+                    Note: {r.plan.note}
+                  </Txt>
+                )}
+                <Pressable
+                  onPress={() => editTargets(r, (next) => update(r.key, next))}
+                  accessibilityRole="button"
+                  hitSlop={6}>
+                  <Txt variant="small" tone="accent" style={{ fontWeight: '700' }}>
+                    {isSimplePlan(r.plan) ? 'Set types, reps per set, progression ›' : 'Edit targets ›'}
+                  </Txt>
+                </Pressable>
                 {r.superset && (
                   <Txt variant="small" tone="muted">
                     No rest: go straight to {rows[i + 1]?.name ?? 'the next exercise'}.
@@ -301,38 +309,43 @@ export default function RoutineEditScreen() {
   );
 }
 
-function Mini({
-  label,
-  value,
-  onChange,
-  keyboard,
-  placeholder,
-  editable = true,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  keyboard: 'number-pad' | 'decimal-pad' | 'numbers-and-punctuation';
-  placeholder?: string;
-  editable?: boolean;
-}) {
+/** Chip and one line for exercises with per-set reps, drop/max sets or a progression. */
+function PlanSummary({ row }: { row: Row }) {
   const t = useTheme();
+  const p = row.plan;
+  const tag =
+    p.mode === 'progression'
+      ? '★ Progression'
+      : p.mode === 'perSet'
+        ? 'Per set'
+        : p.kind === 'drop'
+          ? 'Drop set'
+          : 'Max reps';
+  const reps = parseReps(row.reps);
+  const text = describePlan({
+    sets: Math.round(parseNumber(row.sets)) || 1,
+    repsMin: reps?.min ?? 1,
+    repsMax: reps?.max ?? 1,
+    targetKg: row.kg.trim() ? parseNumber(row.kg) : null,
+    plan: p,
+  }).replace(/^★ /, '');
+  const restText = row.superset ? 'no rest (superset)' : `rest ${row.rest}`;
+  const kgText = p.mode !== 'progression' && row.kg.trim() ? ` · ${row.kg} kg` : '';
   return (
-    <View style={{ flex: 1, gap: 4 }}>
+    <View style={{ gap: 6 }}>
+      <View
+        style={[
+          styles.tag,
+          p.mode === 'progression' ? { borderColor: t.accent, borderWidth: 1.5 } : { backgroundColor: t.surfaceAlt },
+        ]}>
+        <Txt variant="small" tone={p.mode === 'progression' ? 'accent' : 'default'} style={{ fontWeight: '700' }}>
+          {tag}
+        </Txt>
+      </View>
       <Txt variant="small" tone="muted">
-        {label}
+        {text}
+        {kgText} · {restText}
       </Txt>
-      <TextInput
-        value={value}
-        onChangeText={onChange}
-        keyboardType={keyboard}
-        placeholder={placeholder}
-        placeholderTextColor={t.textMuted}
-        selectTextOnFocus
-        accessibilityLabel={label}
-        editable={editable}
-        style={[styles.mini, { backgroundColor: t.surfaceAlt, color: editable ? t.text : t.textMuted }]}
-      />
     </View>
   );
 }
@@ -366,18 +379,9 @@ function IconButton({
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
   targets: { flexDirection: 'row', gap: Spacing.sm },
-  mini: {
-    minWidth: 0,
-    width: '100%',
-    borderRadius: Radius.sm,
-    paddingVertical: 10,
-    textAlign: 'center',
-    fontSize: 16,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
-  },
   icon: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
   link: { alignSelf: 'center', paddingVertical: 2 },
+  tag: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   notes: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: Radius.md,

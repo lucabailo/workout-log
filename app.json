@@ -2,7 +2,7 @@
   "expo": {
     "name": "Workout Log",
     "slug": "workout-log",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "workoutlog",
@@ -20,7 +20,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "dev.lucabailo.workoutlog",
-      "versionCode": 4
+      "versionCode": 5
     },
     "web": {
       "output": "single",

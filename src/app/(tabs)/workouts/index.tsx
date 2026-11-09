@@ -9,6 +9,7 @@ import {
   activeWorkoutStatus,
   deleteWorkout,
   finishWorkout,
+  listPrograms,
   listRoutines,
   listWorkoutSummaries,
   startWorkout,
@@ -16,6 +17,7 @@ import {
 } from '@/db/repository';
 import { formatClock, formatDay, formatDuration, formatKg } from '@/domain/format';
 import { looksForgotten } from '@/domain/routines';
+import { programSlot } from '@/domain/plan';
 import type { RoutineSummary } from '@/domain/types';
 import { useDbQuery } from '@/hooks/use-db-query';
 import { useNow } from '@/hooks/use-now';
@@ -29,6 +31,7 @@ export default function WorkoutsScreen() {
   const { data, db, reload } = useDbQuery(async (db) => ({
     active: await activeWorkoutStatus(db),
     routines: await listRoutines(db),
+    programs: await listPrograms(db),
     workouts: await listWorkoutSummaries(db),
   }));
   const now = useNow(60_000);
@@ -43,7 +46,14 @@ export default function WorkoutsScreen() {
   }, [data]);
 
   if (!data) return <Loading />;
-  const { active, routines, workouts } = data;
+  const { active, routines, programs, workouts } = data;
+  // Each program's next routine comes first in the quick start.
+  const programNext = programs.flatMap((program) => {
+    const slot = programSlot(program.intro.length, program.rotation.length, program.position);
+    const next = slot ? (slot.phase === 'intro' ? program.intro : program.rotation)[slot.index] : null;
+    const routine = routines.find((r) => r.id === next?.routineId);
+    return routine ? [{ program, routine }] : [];
+  });
   const showPrompt = isLaunch && !promptDone && !!active && looksForgotten(active.startedAt, now);
 
   async function finishForgotten() {
@@ -69,8 +79,8 @@ export default function WorkoutsScreen() {
     router.push('/active');
   }
 
-  async function startRoutine(id: number) {
-    await startWorkoutFromRoutine(db, id);
+  async function startRoutine(id: number, programId?: number) {
+    await startWorkoutFromRoutine(db, id, { programId });
     router.push('/active');
   }
 
@@ -93,9 +103,27 @@ export default function WorkoutsScreen() {
       ) : routines.length > 0 ? (
         <>
           <SectionLabel>Start a routine</SectionLabel>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quick} style={styles.quickScroll}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.quick}
+            style={styles.quickScroll}>
+            {programNext.map(({ program, routine }) => (
+              <QuickStart
+                key={`p${program.id}`}
+                routine={routine}
+                label={`Next · ${program.name}`}
+                onPress={() => startRoutine(routine.id, program.id)}
+                single={false}
+              />
+            ))}
             {routines.map((r) => (
-              <QuickStart key={r.id} routine={r} onPress={() => startRoutine(r.id)} single={routines.length === 1} />
+              <QuickStart
+                key={r.id}
+                routine={r}
+                onPress={() => startRoutine(r.id)}
+                single={routines.length === 1 && programNext.length === 0}
+              />
             ))}
           </ScrollView>
           <Button title="+ Start empty workout" variant="secondary" onPress={startEmpty} />
@@ -146,7 +174,17 @@ export default function WorkoutsScreen() {
   );
 }
 
-function QuickStart({ routine, onPress, single }: { routine: RoutineSummary; onPress: () => void; single: boolean }) {
+function QuickStart({
+  routine,
+  onPress,
+  single,
+  label,
+}: {
+  routine: RoutineSummary;
+  onPress: () => void;
+  single: boolean;
+  label?: string;
+}) {
   return (
     <Pressable
       onPress={onPress}
@@ -154,6 +192,11 @@ function QuickStart({ routine, onPress, single }: { routine: RoutineSummary; onP
       accessibilityLabel={`Start ${routine.name}`}
       style={({ pressed }) => [single ? { flex: 1 } : styles.quickItem, pressed && { opacity: 0.7 }]}>
       <Card style={{ gap: 2, padding: Spacing.md }}>
+        {label && (
+          <Txt variant="small" tone="accent" style={{ fontWeight: '700' }} numberOfLines={1}>
+            {label}
+          </Txt>
+        )}
         <Txt variant="heading" style={{ fontSize: 17 }} numberOfLines={1}>
           {routine.name}
         </Txt>

@@ -2,7 +2,8 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 
 import { Button, Card, EmptyState, ListRow, Loading, Screen, SectionLabel, Txt } from '@/components/ui';
 import { getActiveWorkout, getRoutine, startWorkoutFromRoutine } from '@/db/repository';
-import { formatDay, formatKg, formatReps, formatRest } from '@/domain/format';
+import { formatDay, formatKg, formatRest } from '@/domain/format';
+import { describePlan } from '@/domain/plan';
 import { plannedSets, supersetLabels } from '@/domain/routines';
 import { useDbQuery } from '@/hooks/use-db-query';
 
@@ -60,11 +61,19 @@ export default function RoutineDetailScreen() {
           <ListRow
             key={e.exerciseId}
             first={i === 0}
-            title={labels.has(e.exerciseId) ? `${labels.get(e.exerciseId)}  ${e.name}` : e.name}
-            detail={`${e.sets} sets × ${formatReps(e.repsMin, e.repsMax)} reps · ${
-              e.supersetWithNext ? 'superset, no rest' : `rest ${formatRest(e.restSeconds)}`
+            title={`${labels.has(e.exerciseId) ? `${labels.get(e.exerciseId)}  ` : ''}${e.name}${e.plan.mode === 'progression' ? ' ★' : ''}`}
+            detail={`${describePlan(e)} · ${e.supersetWithNext ? 'superset, no rest' : `rest ${formatRest(e.restSeconds)}`}${
+              e.plan.note ? ` · ${e.plan.note}` : ''
             }`}
-            value={e.targetKg === null ? '—' : `${e.loadType === 'bodyweight' ? '+' : ''}${formatKg(e.targetKg)} kg`}
+            value={
+              e.plan.mode === 'progression'
+                ? e.plan.progression?.unit === 'pct'
+                  ? '% 1RM'
+                  : ''
+                : e.targetKg === null
+                  ? '—'
+                  : `${e.loadType === 'bodyweight' ? '+' : ''}${formatKg(e.targetKg)} kg`
+            }
             onPress={() => router.push(`/profile/exercises/${e.exerciseId}`)}
           />
         ))}

@@ -20,8 +20,10 @@ import {
   removeExerciseFromWorkout,
   updateSet,
   workoutPlan,
+  workoutTargets,
 } from '@/db/repository';
-import { formatClock, formatKg, formatReps, formatRest } from '@/domain/format';
+import { formatClock, formatKg, formatRest } from '@/domain/format';
+import { formatScheme, type TodayTargets } from '@/domain/plan';
 import { supersetLabels } from '@/domain/routines';
 import { newRecordIndexes, volume } from '@/domain/stats';
 import { useDbQuery } from '@/hooks/use-db-query';
@@ -44,11 +46,17 @@ export default function ActiveWorkoutScreen() {
       })),
     );
     const plan = await workoutPlan(db, workout.id);
+    const today = await workoutTargets(db, workout.id);
     return {
       workout,
       settings: await getSettings(db),
       routineName: await getRoutineName(db, workout.routineId),
-      blocks: blocks.map((b, i) => ({ ...b, ...extras[i], target: plan.get(b.exercise.id) ?? null })),
+      blocks: blocks.map((b, i) => ({
+        ...b,
+        ...extras[i],
+        target: plan.get(b.exercise.id) ?? null,
+        today: today.get(b.exercise.id) ?? null,
+      })),
       labels: supersetLabels([...plan.values()]),
     };
   });
@@ -71,7 +79,8 @@ export default function ActiveWorkoutScreen() {
 
   const { workout, blocks, settings, routineName, labels } = data;
   const completed = blocks.flatMap((b) => b.sets.filter((s) => s.completed));
-  const totalSets = blocks.reduce((n, b) => n + b.sets.length, 0);
+  const totalSets = blocks.reduce((n, b) => n + b.sets.filter((s) => s.dropIndex === 0).length, 0);
+  const doneMain = completed.filter((s) => s.dropIndex === 0).length;
 
   /** restSeconds is null inside a superset: go straight to the next exercise. */
   async function toggle(setId: number, wasDone: boolean, restSeconds: number | null) {
@@ -94,7 +103,7 @@ export default function ActiveWorkoutScreen() {
       }
       return;
     }
-    const unticked = blocks.reduce((n, b) => n + b.sets.filter((s) => !s.completed).length, 0);
+    const unticked = blocks.reduce((n, b) => n + b.sets.filter((s) => !s.completed && s.dropIndex === 0).length, 0);
     const message =
       unticked > 0
         ? `${unticked} set${unticked === 1 ? ' is' : 's are'} not ticked off and will be dropped.`
@@ -124,7 +133,7 @@ export default function ActiveWorkoutScreen() {
       <Screen>
         <View style={styles.summary}>
           <Txt tone="muted">
-            {completed.length} of {totalSets} sets · {formatKg(volume(completed))} kg
+            {doneMain} of {totalSets} sets · {formatKg(volume(completed))} kg
           </Txt>
         </View>
 
@@ -174,31 +183,41 @@ export default function ActiveWorkoutScreen() {
                   }}
                 />
               </View>
-              {b.target && (
-                <Txt variant="small" tone="muted" style={{ fontWeight: '600' }}>
-                  Target {b.target.sets} × {formatReps(b.target.repsMin, b.target.repsMax)}
-                  {b.target.targetKg !== null ? ` · ${formatKg(b.target.targetKg)} kg` : ''} ·{' '}
+              {b.target && b.today && (
+                <Txt variant="small" tone={b.today.step !== null ? 'accent' : 'muted'} style={{ fontWeight: '600' }}>
+                  {targetLine(b.today, b.target.plan.progression?.reserveRep ?? false)} ·{' '}
                   {inSuperset ? `no rest, then ${nextName ?? 'next exercise'}` : `rest ${formatRest(rest)}`}
                 </Txt>
               )}
+              {b.target?.plan.note && (
+                <Txt variant="small" tone="muted">
+                  Note: {b.target.plan.note}
+                </Txt>
+              )}
               <SetHeader loadType={b.exercise.loadType} />
-              {b.sets.map((s, i) => (
-                <SetRow
-                  // Remount when the stored values change, so the fields show them.
-                  key={`${s.id}:${s.weightKg}:${s.reps}`}
-                  set={s}
-                  previous={b.previous[i]}
-                  isRecord={s.completed && records.includes(doneSets.indexOf(s))}
-                  onChange={(changes) => updateSet(db, s.id, changes)}
-                  onToggle={() => toggle(s.id, s.completed, inSuperset ? null : rest)}
-                  onDelete={async () => {
-                    if (await confirm(`Delete set ${s.setIndex}?`, '', 'Delete', true)) {
-                      await deleteSet(db, s.id);
-                      await reload();
-                    }
-                  }}
-                />
-              ))}
+              {b.sets.map((s) => {
+                const isDrop = s.dropIndex > 0;
+                const main = b.sets.filter((x) => x.dropIndex === 0).indexOf(s);
+                return (
+                  <SetRow
+                    // Remount when the stored values change, so the fields show them.
+                    key={`${s.id}:${s.weightKg}:${s.reps}`}
+                    set={s}
+                    drop={isDrop}
+                    previous={isDrop ? undefined : b.previous[main]}
+                    isRecord={s.completed && records.includes(doneSets.indexOf(s))}
+                    onChange={(changes) => updateSet(db, s.id, changes)}
+                    onToggle={() => toggle(s.id, s.completed, inSuperset ? null : rest)}
+                    onDelete={async () => {
+                      const what = isDrop ? `drop ${s.dropIndex} of set ${s.setIndex}` : `set ${s.setIndex}`;
+                      if (await confirm(`Delete ${what}?`, '', 'Delete', true)) {
+                        await deleteSet(db, s.id);
+                        await reload();
+                      }
+                    }}
+                  />
+                );
+              })}
               <Button
                 title="+ Add set"
                 variant="secondary"
@@ -227,6 +246,17 @@ export default function ActiveWorkoutScreen() {
 function useElapsed(startedAt: string | undefined) {
   const now = useNow();
   return startedAt ? (now - Date.parse(startedAt)) / 1000 : 0;
+}
+
+/** "Target 4 × 8–10 · 60 kg" or, in a progression, "★ Step 2 of 4 · 4 × 9 @ 75% = 45 kg". */
+function targetLine(today: TodayTargets, reserveRep: boolean) {
+  const scheme = formatScheme(today.sets);
+  const kg = today.kg !== null && today.kg > 0 ? `${formatKg(today.kg)} kg` : null;
+  if (today.step !== null) {
+    const load = today.pct !== null ? ` @ ${formatKg(today.pct)}%${kg ? ` = ${kg}` : ''}` : kg ? ` · ${kg}` : '';
+    return `★ Step ${today.step + 1} of ${today.stepCount} · ${scheme}${load}${reserveRep ? ' · 1 rep in reserve' : ''}`;
+  }
+  return `Target ${scheme}${kg ? ` · ${kg}` : ''}`;
 }
 
 /** "A1" → "A2": the exercise that follows in the same superset. */

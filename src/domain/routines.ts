@@ -1,3 +1,4 @@
+import { plannedSetCount, type PlanBase } from './plan';
 import type { RoutineExercise, WorkoutSet } from './types';
 
 type DoneSet = Pick<WorkoutSet, 'reps' | 'weightKg'>;
@@ -20,7 +21,8 @@ export function suggestedTargetUpdates(
 ): TargetUpdate[] {
   const updates: TargetUpdate[] = [];
   for (const e of plan) {
-    if (e.targetKg === null) continue;
+    // progressions set their own weight every session
+    if (e.targetKg === null || e.plan?.mode === 'progression') continue;
     const sets = doneSetsByExercise.get(e.exerciseId) ?? [];
     const best = Math.max(0, ...sets.filter((s) => s.reps >= e.repsMin).map((s) => s.weightKg));
     if (best > e.targetKg) updates.push({ exerciseId: e.exerciseId, name: e.name, fromKg: e.targetKg, toKg: best });
@@ -29,8 +31,8 @@ export function suggestedTargetUpdates(
 }
 
 /** Total sets planned in a routine. */
-export function plannedSets(exercises: Pick<RoutineExercise, 'sets'>[]): number {
-  return exercises.reduce((n, e) => n + e.sets, 0);
+export function plannedSets(exercises: (Pick<RoutineExercise, 'sets'> & Partial<PlanBase>)[]): number {
+  return exercises.reduce((n, e) => n + (e.plan ? plannedSetCount(e as PlanBase) : e.sets), 0);
 }
 
 /**

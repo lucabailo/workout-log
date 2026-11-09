@@ -1,6 +1,7 @@
 import { formatDateInput, formatReps, formatRest, parseDate, parseReps, parseRest } from '../format';
 import { looksForgotten, plannedSets, suggestedTargetUpdates, supersetLabels } from '../routines';
 import { activityGrid, recordCount, weeklyStreak } from '../stats';
+import { defaultPlan } from '../plan';
 import type { ExerciseSession, RoutineExercise } from '../types';
 
 // Wednesday 11 Nov 2026, local time
@@ -76,9 +77,9 @@ describe('recordCount', () => {
 
 describe('suggestedTargetUpdates', () => {
   const plan: RoutineExercise[] = [
-    { exerciseId: 1, name: 'Bench Press', loadType: 'barbell', sets: 4, repsMin: 6, repsMax: 8, targetKg: 80, restSeconds: 150, supersetWithNext: false },
-    { exerciseId: 2, name: 'Overhead Press', loadType: 'barbell', sets: 3, repsMin: 8, repsMax: 8, targetKg: 45, restSeconds: 120, supersetWithNext: false },
-    { exerciseId: 3, name: 'Lateral Raise', loadType: 'dumbbell', sets: 3, repsMin: 12, repsMax: 15, targetKg: null, restSeconds: 60, supersetWithNext: false },
+    { exerciseId: 1, name: 'Bench Press', loadType: 'barbell', sets: 4, repsMin: 6, repsMax: 8, targetKg: 80, restSeconds: 150, supersetWithNext: false, plan: defaultPlan() },
+    { exerciseId: 2, name: 'Overhead Press', loadType: 'barbell', sets: 3, repsMin: 8, repsMax: 8, targetKg: 45, restSeconds: 120, supersetWithNext: false, plan: defaultPlan() },
+    { exerciseId: 3, name: 'Lateral Raise', loadType: 'dumbbell', sets: 3, repsMin: 12, repsMax: 15, targetKg: null, restSeconds: 60, supersetWithNext: false, plan: defaultPlan() },
   ];
 
   it('suggests the heaviest weight done for at least the bottom of the range', () => {
@@ -132,12 +133,12 @@ describe('formatDateInput', () => {
 describe('supersetLabels', () => {
   it('labels linked exercises A1, A2… and leaves single ones alone', () => {
     const plan = [
-      { exerciseId: 1, supersetWithNext: false },
+      { exerciseId: 1, supersetWithNext: false, plan: defaultPlan() },
       { exerciseId: 2, supersetWithNext: true },
-      { exerciseId: 3, supersetWithNext: false },
+      { exerciseId: 3, supersetWithNext: false, plan: defaultPlan() },
       { exerciseId: 4, supersetWithNext: true },
       { exerciseId: 5, supersetWithNext: true },
-      { exerciseId: 6, supersetWithNext: false },
+      { exerciseId: 6, supersetWithNext: false, plan: defaultPlan() },
     ];
     expect([...supersetLabels(plan)]).toEqual([
       [2, 'A1'],

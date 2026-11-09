@@ -5,6 +5,7 @@ import type {
   ExerciseSession,
   LoadType,
   MuscleGroup,
+  Program,
   RoutineExercise,
   RoutineSummary,
   Settings,
@@ -12,6 +13,8 @@ import type {
   WorkoutSet,
   WorkoutSummary,
 } from '@/domain/types';
+import { dropWeights, readPlan, targetsFor, writePlan, type SetKind, type TodayTargets } from '@/domain/plan';
+import { personalRecords } from '@/domain/stats';
 
 // ---------------------------------------------------------------------------
 // Row types (as stored) and mappers to the app's types
@@ -31,6 +34,7 @@ interface WorkoutRow {
   finished_at: string | null;
   notes: string | null;
   routine_id: number | null;
+  program_id?: number | null;
 }
 
 interface SetRow {
@@ -42,6 +46,8 @@ interface SetRow {
   weight_kg: number;
   completed: number;
   completed_at?: string | null;
+  kind?: string;
+  drop_index?: number;
 }
 
 const toExercise = (r: ExerciseRow): Exercise => ({
@@ -58,6 +64,7 @@ const toWorkout = (r: WorkoutRow): Workout => ({
   finishedAt: r.finished_at,
   notes: r.notes,
   routineId: r.routine_id ?? null,
+  programId: r.program_id ?? null,
 });
 
 const toSet = (r: SetRow): WorkoutSet => ({
@@ -68,6 +75,8 @@ const toSet = (r: SetRow): WorkoutSet => ({
   reps: r.reps,
   weightKg: r.weight_kg,
   completed: r.completed === 1,
+  kind: (r.kind ?? 'normal') as SetKind,
+  dropIndex: r.drop_index ?? 0,
 });
 
 const now = () => new Date().toISOString();
@@ -205,6 +214,12 @@ export async function finishWorkout(
       notes?.trim() || null,
       id,
     );
+    // A workout started from a program moves the program on to its next routine.
+    await db.runAsync(
+      `UPDATE programs SET position = position + 1
+       WHERE id = (SELECT program_id FROM workouts WHERE id = ?)`,
+      id,
+    );
     saved = true;
   });
   return saved;
@@ -231,7 +246,7 @@ export async function listWorkoutSummaries(db: Db): Promise<WorkoutSummary[]> {
     volume: number;
   }>(`
     SELECT w.id, w.started_at, w.finished_at, r.name AS routine_name,
-           COUNT(s.id) AS set_count,
+           COUNT(CASE WHEN s.drop_index = 0 THEN s.id END) AS set_count,
            COALESCE(SUM(s.reps * s.weight_kg), 0) AS volume
     FROM workouts w
     LEFT JOIN routines r     ON r.id = w.routine_id
@@ -300,7 +315,7 @@ export async function getWorkoutBlocks(db: Db, workoutId: number): Promise<Worko
     }
     blocks.get(r.exercise_id)!.sets.push(toSet(r));
   }
-  for (const block of blocks.values()) block.sets.sort((a, b) => a.setIndex - b.setIndex);
+  for (const block of blocks.values()) block.sets.sort((a, b) => a.setIndex - b.setIndex || a.dropIndex - b.dropIndex);
   return [...blocks.values()];
 }
 
@@ -321,7 +336,7 @@ export async function previousSets(
   if (!last) return [];
   const rows = await db.getAllAsync<{ reps: number; weight_kg: number }>(
     `SELECT reps, weight_kg FROM workout_sets
-     WHERE workout_id = ? AND exercise_id = ? AND completed = 1 ORDER BY set_index`,
+     WHERE workout_id = ? AND exercise_id = ? AND completed = 1 AND drop_index = 0 ORDER BY set_index`,
     last.id,
     exerciseId,
   );
@@ -334,7 +349,7 @@ export async function previousSets(
  */
 export async function addSet(db: Db, workoutId: number, exerciseId: number): Promise<number> {
   const last = await db.getFirstAsync<SetRow>(
-    'SELECT * FROM workout_sets WHERE workout_id = ? AND exercise_id = ? ORDER BY set_index DESC LIMIT 1',
+    'SELECT * FROM workout_sets WHERE workout_id = ? AND exercise_id = ? AND drop_index = 0 ORDER BY set_index DESC LIMIT 1',
     workoutId,
     exerciseId,
   );
@@ -348,14 +363,42 @@ export async function addSet(db: Db, workoutId: number, exerciseId: number): Pro
       weight = previous[0].weightKg;
     }
   }
+  // A new set copies the last one, drops included.
+  const drops = last
+    ? await db.getAllAsync<SetRow>(
+        'SELECT * FROM workout_sets WHERE workout_id = ? AND exercise_id = ? AND set_index = ? AND drop_index > 0 ORDER BY drop_index',
+        workoutId,
+        exerciseId,
+        last.set_index,
+      )
+    : [];
+  const id = await insertSet(db, workoutId, exerciseId, setIndex, 0, (last?.kind ?? 'normal') as SetKind, reps, weight);
+  for (const d of drops) {
+    await insertSet(db, workoutId, exerciseId, setIndex, d.drop_index ?? 1, 'drop', d.reps, d.weight_kg);
+  }
+  return id;
+}
+
+async function insertSet(
+  db: Db,
+  workoutId: number,
+  exerciseId: number,
+  setIndex: number,
+  dropIndex: number,
+  kind: SetKind,
+  reps: number,
+  weightKg: number,
+): Promise<number> {
   const result = await db.runAsync(
-    `INSERT INTO workout_sets (workout_id, exercise_id, set_index, reps, weight_kg, completed)
-     VALUES (?, ?, ?, ?, ?, 0)`,
+    `INSERT INTO workout_sets (workout_id, exercise_id, set_index, drop_index, kind, reps, weight_kg, completed)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
     workoutId,
     exerciseId,
     setIndex,
+    dropIndex,
+    kind,
     reps,
-    weight,
+    weightKg,
   );
   return result.lastInsertRowId;
 }
@@ -378,6 +421,18 @@ export async function updateSet(
     completed ? (wasCompleted ? (current.completed_at ?? now()) : now()) : null,
     setId,
   );
+  // Ticking the first part of a drop set ticks the whole chain.
+  if (changes.completed !== undefined && (current.drop_index ?? 0) === 0 && current.kind === 'drop') {
+    await db.runAsync(
+      `UPDATE workout_sets SET completed = ?, completed_at = ?
+       WHERE workout_id = ? AND exercise_id = ? AND set_index = ? AND drop_index > 0`,
+      completed ? 1 : 0,
+      completed ? now() : null,
+      current.workout_id,
+      current.exercise_id,
+      current.set_index,
+    );
+  }
 }
 
 /** Deletes a set and renumbers the remaining sets of that exercise 1, 2, 3… */
@@ -385,14 +440,31 @@ export async function deleteSet(db: Db, setId: number): Promise<void> {
   const set = await db.getFirstAsync<SetRow>('SELECT * FROM workout_sets WHERE id = ?', setId);
   if (!set) return;
   await db.withTransactionAsync(async () => {
-    await db.runAsync('DELETE FROM workout_sets WHERE id = ?', setId);
-    const rest = await db.getAllAsync<{ id: number }>(
-      'SELECT id FROM workout_sets WHERE workout_id = ? AND exercise_id = ? ORDER BY set_index',
+    if ((set.drop_index ?? 0) > 0) {
+      // Removing one drop only shortens the chain.
+      await db.runAsync('DELETE FROM workout_sets WHERE id = ?', setId);
+      return;
+    }
+    await db.runAsync(
+      'DELETE FROM workout_sets WHERE workout_id = ? AND exercise_id = ? AND set_index = ?',
+      set.workout_id,
+      set.exercise_id,
+      set.set_index,
+    );
+    const rest = await db.getAllAsync<{ set_index: number }>(
+      'SELECT DISTINCT set_index FROM workout_sets WHERE workout_id = ? AND exercise_id = ? ORDER BY set_index',
       set.workout_id,
       set.exercise_id,
     );
     for (let i = 0; i < rest.length; i++) {
-      await db.runAsync('UPDATE workout_sets SET set_index = ? WHERE id = ?', i + 1, rest[i].id);
+      if (rest[i].set_index === i + 1) continue;
+      await db.runAsync(
+        'UPDATE workout_sets SET set_index = ? WHERE workout_id = ? AND exercise_id = ? AND set_index = ?',
+        i + 1,
+        set.workout_id,
+        set.exercise_id,
+        rest[i].set_index,
+      );
     }
   });
 }
@@ -473,6 +545,7 @@ interface RoutineExerciseRow {
   target_kg: number | null;
   rest_seconds: number;
   superset_with_next: number;
+  plan_json: string | null;
 }
 
 const toRoutineExercise = (r: RoutineExerciseRow): RoutineExercise => ({
@@ -485,12 +558,13 @@ const toRoutineExercise = (r: RoutineExerciseRow): RoutineExercise => ({
   targetKg: r.target_kg,
   restSeconds: r.rest_seconds,
   supersetWithNext: r.superset_with_next === 1,
+  plan: readPlan(r.plan_json),
 });
 
 async function routineExercises(db: Db, routineId?: number): Promise<RoutineExerciseRow[]> {
   return db.getAllAsync<RoutineExerciseRow>(
     `SELECT re.routine_id, re.exercise_id, e.name, e.load_type, re.sets, re.reps_min, re.reps_max,
-            re.target_kg, re.rest_seconds, re.superset_with_next
+            re.target_kg, re.rest_seconds, re.superset_with_next, re.plan_json
      FROM routine_exercises re
      JOIN exercises e ON e.id = re.exercise_id
      ${routineId === undefined ? '' : 'WHERE re.routine_id = ?'}
@@ -524,7 +598,8 @@ export interface RoutineDraft {
   id?: number;
   name: string;
   notes?: string | null;
-  exercises: (Omit<RoutineExercise, 'name' | 'loadType' | 'supersetWithNext'> & { supersetWithNext?: boolean })[];
+  exercises: (Omit<RoutineExercise, 'name' | 'loadType' | 'supersetWithNext' | 'plan'> &
+    Partial<Pick<RoutineExercise, 'supersetWithNext' | 'plan'>>)[];
 }
 
 /** Creates or replaces a routine and its exercises. Returns its id. */
@@ -552,8 +627,8 @@ export async function saveRoutine(db: Db, draft: RoutineDraft): Promise<number> 
       const repsMin = Math.max(1, Math.round(e.repsMin));
       await db.runAsync(
         `INSERT INTO routine_exercises
-           (routine_id, exercise_id, position, sets, reps_min, reps_max, target_kg, rest_seconds, superset_with_next)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (routine_id, exercise_id, position, sets, reps_min, reps_max, target_kg, rest_seconds, superset_with_next, plan_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id!,
         e.exerciseId,
         position,
@@ -564,6 +639,7 @@ export async function saveRoutine(db: Db, draft: RoutineDraft): Promise<number> 
         Math.max(0, Math.round(e.restSeconds)),
         // the last exercise has nothing to be paired with
         e.supersetWithNext && position < draft.exercises.length - 1 ? 1 : 0,
+        e.plan ? writePlan(e.plan) : null,
       );
     }
   });
@@ -574,6 +650,7 @@ export async function deleteRoutine(db: Db, id: number): Promise<void> {
   await db.withTransactionAsync(async () => {
     // Past workouts keep their sets; they just stop pointing at the routine.
     await db.runAsync('UPDATE workouts SET routine_id = NULL WHERE routine_id = ?', id);
+    await db.runAsync('DELETE FROM program_routines WHERE routine_id = ?', id);
     await db.runAsync('DELETE FROM routine_exercises WHERE routine_id = ?', id);
     await db.runAsync('DELETE FROM routines WHERE id = ?', id);
   });
@@ -599,34 +676,85 @@ export async function updateRoutineTargets(
 
 /**
  * Starts a workout from a routine: every exercise and set is created up front, pre-filled
- * with the target weight (or last time's weight when there is no target) and the top of the
- * rep range. If a workout is already in progress, that one is returned instead.
+ * with today's targets (per-set reps, drop sets, the right step of a progression) and the
+ * target weight, or last time's weight when there is none. If a workout is already in
+ * progress, that one is returned instead. `programId` records which program it belongs to.
  */
-export async function startWorkoutFromRoutine(db: Db, routineId: number): Promise<number> {
+export async function startWorkoutFromRoutine(
+  db: Db,
+  routineId: number,
+  options: { programId?: number } = {},
+): Promise<number> {
   const active = await getActiveWorkout(db);
   if (active) return active.id;
-  const plan = await routineExercises(db, routineId);
+  const plan = (await routineExercises(db, routineId)).map(toRoutineExercise);
+  const done = await timesRoutineDone(db, routineId);
   let workoutId = 0;
   await db.withTransactionAsync(async () => {
-    const result = await db.runAsync('INSERT INTO workouts (started_at, routine_id) VALUES (?, ?)', now(), routineId);
+    const result = await db.runAsync(
+      'INSERT INTO workouts (started_at, routine_id, program_id) VALUES (?, ?, ?)',
+      now(),
+      routineId,
+      options.programId ?? null,
+    );
     workoutId = result.lastInsertRowId;
     for (const e of plan) {
-      const previous = await previousSets(db, e.exercise_id, workoutId);
-      for (let i = 0; i < e.sets; i++) {
+      const previous = await previousSets(db, e.exerciseId, workoutId);
+      const today = targetsFor(e, done, await exerciseOneRepMax(db, e.exerciseId));
+      for (const [i, target] of today.sets.entries()) {
         const last = previous[i] ?? previous[previous.length - 1];
-        await db.runAsync(
-          `INSERT INTO workout_sets (workout_id, exercise_id, set_index, reps, weight_kg, completed)
-           VALUES (?, ?, ?, ?, ?, 0)`,
-          workoutId,
-          e.exercise_id,
-          i + 1,
-          e.reps_max,
-          e.target_kg ?? last?.weightKg ?? 0,
-        );
+        const kg = today.kg ?? last?.weightKg ?? 0;
+        const reps = target.kind === 'max' ? 0 : target.repsMax;
+        await insertSet(db, workoutId, e.exerciseId, i + 1, 0, target.kind, reps, kg);
+        if (target.kind === 'drop') {
+          const weights = dropWeights(kg, target.drops);
+          for (let d = 1; d <= target.drops; d++) {
+            await insertSet(db, workoutId, e.exerciseId, i + 1, d, 'drop', reps, weights[d]);
+          }
+        }
       }
     }
   });
   return workoutId;
+}
+
+/** Finished workouts of a routine, optionally only those started before a time. Drives progressions. */
+export async function timesRoutineDone(db: Db, routineId: number, beforeIso?: string): Promise<number> {
+  const row = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM workouts
+     WHERE routine_id = ? AND finished_at IS NOT NULL ${beforeIso ? 'AND started_at < ?' : ''}`,
+    ...(beforeIso ? [routineId, beforeIso] : [routineId]),
+  );
+  return row?.n ?? 0;
+}
+
+/** The one-rep max used for % loads: the one the user typed, or the best estimate from history. */
+export async function exerciseOneRepMax(db: Db, exerciseId: number): Promise<number | null> {
+  const row = await db.getFirstAsync<{ one_rep_max: number | null }>(
+    'SELECT one_rep_max FROM exercises WHERE id = ?',
+    exerciseId,
+  );
+  if (row?.one_rep_max) return row.one_rep_max;
+  const best = personalRecords(await exerciseSessions(db, exerciseId)).bestOneRepMaxKg;
+  return best > 0 ? Math.round(best * 10) / 10 : null;
+}
+
+/** Saves (or clears, with null) the one-rep max the user typed. */
+export async function setOneRepMax(db: Db, exerciseId: number, kg: number | null): Promise<void> {
+  await db.runAsync('UPDATE exercises SET one_rep_max = ? WHERE id = ?', kg && kg > 0 ? kg : null, exerciseId);
+}
+
+/** Today's targets of each exercise of a workout started from a routine (step of the progression, kg). */
+export async function workoutTargets(db: Db, workoutId: number): Promise<Map<number, TodayTargets>> {
+  const w = await getWorkout(db, workoutId);
+  const out = new Map<number, TodayTargets>();
+  if (!w?.routineId) return out;
+  const done = await timesRoutineDone(db, w.routineId, w.startedAt);
+  for (const r of await routineExercises(db, w.routineId)) {
+    const e = toRoutineExercise(r);
+    out.set(e.exerciseId, targetsFor(e, done, await exerciseOneRepMax(db, e.exerciseId)));
+  }
+  return out;
 }
 
 /** The routine plan behind a workout, per exercise id (empty for a free workout). */
@@ -768,7 +896,10 @@ export interface ActiveStatus {
 export async function activeWorkoutStatus(db: Db): Promise<ActiveStatus | null> {
   const workout = await getActiveWorkout(db);
   if (!workout) return null;
-  const blocks = await getWorkoutBlocks(db, workout.id);
+  const blocks = (await getWorkoutBlocks(db, workout.id)).map((b) => ({
+    ...b,
+    sets: b.sets.filter((s) => s.dropIndex === 0),
+  }));
   const sets = blocks.flatMap((b) => b.sets);
   const nextBlock = blocks.find((b) => b.sets.some((s) => !s.completed));
   const nextSet = nextBlock?.sets.find((s) => !s.completed);
@@ -783,4 +914,85 @@ export async function activeWorkoutStatus(db: Db): Promise<ActiveStatus | null> 
         ? { exercise: nextBlock.exercise.name, setIndex: nextSet.setIndex, setCount: nextBlock.sets.length }
         : null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Programs
+// ---------------------------------------------------------------------------
+
+export async function listPrograms(db: Db): Promise<Program[]> {
+  const programs = await db.getAllAsync<{ id: number; name: string; position: number }>(
+    'SELECT id, name, position FROM programs ORDER BY id',
+  );
+  const slots = await db.getAllAsync<{ program_id: number; routine_id: number; phase: string; name: string }>(
+    `SELECT pr.program_id, pr.routine_id, pr.phase, r.name
+     FROM program_routines pr JOIN routines r ON r.id = pr.routine_id
+     ORDER BY pr.program_id, pr.phase, pr.position`,
+  );
+  return programs.map((p) => {
+    const mine = slots.filter((s) => s.program_id === p.id);
+    const pick = (phase: string) =>
+      mine.filter((s) => s.phase === phase).map((s) => ({ routineId: s.routine_id, name: s.name }));
+    return { id: p.id, name: p.name, position: p.position, intro: pick('intro'), rotation: pick('rotation') };
+  });
+}
+
+export async function getProgram(db: Db, id: number): Promise<Program | null> {
+  return (await listPrograms(db)).find((p) => p.id === id) ?? null;
+}
+
+export interface ProgramDraft {
+  id?: number;
+  name: string;
+  intro: number[];
+  rotation: number[];
+  position?: number;
+}
+
+/** Creates or replaces a program. Returns its id. */
+export async function saveProgram(db: Db, draft: ProgramDraft): Promise<number> {
+  const name = draft.name.trim();
+  if (!name) throw new Error('Give the program a name');
+  if (draft.rotation.length === 0) throw new Error('Add at least one routine to the rotation');
+  let id = draft.id;
+  await db.withTransactionAsync(async () => {
+    if (id === undefined) {
+      const result = await db.runAsync(
+        'INSERT INTO programs (name, position, created_at) VALUES (?, ?, ?)',
+        name,
+        Math.max(0, draft.position ?? 0),
+        now(),
+      );
+      id = result.lastInsertRowId;
+    } else {
+      await db.runAsync('UPDATE programs SET name = ? WHERE id = ?', name, id);
+      if (draft.position !== undefined) {
+        await db.runAsync('UPDATE programs SET position = ? WHERE id = ?', Math.max(0, draft.position), id);
+      }
+      await db.runAsync('DELETE FROM program_routines WHERE program_id = ?', id);
+    }
+    for (const [phase, list] of [
+      ['intro', draft.intro],
+      ['rotation', draft.rotation],
+    ] as const) {
+      for (const [position, routineId] of list.entries()) {
+        await db.runAsync(
+          'INSERT INTO program_routines (program_id, routine_id, phase, position) VALUES (?, ?, ?, ?)',
+          id!,
+          routineId,
+          phase,
+          position,
+        );
+      }
+    }
+  });
+  return id!;
+}
+
+export async function deleteProgram(db: Db, id: number): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('UPDATE workouts SET program_id = NULL WHERE program_id = ?', id);
+    await db.runAsync('DELETE FROM program_routines WHERE program_id = ?', id);
+    await db.runAsync('DELETE FROM programs WHERE id = ?', id);
+  });
 }

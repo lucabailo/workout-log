@@ -137,6 +137,29 @@ const MIGRATIONS: ((db: Db) => Promise<void>)[] = [
       ALTER TABLE routine_exercises ADD COLUMN superset_with_next INTEGER NOT NULL DEFAULT 0;
     `);
   },
+  // v4: advanced plans (per-set reps, drop and max sets, progressions), programs, 1RM override.
+  async (db) => {
+    await db.execAsync(`
+      ALTER TABLE routine_exercises ADD COLUMN plan_json TEXT;
+      ALTER TABLE exercises         ADD COLUMN one_rep_max REAL;
+      ALTER TABLE workout_sets      ADD COLUMN kind TEXT NOT NULL DEFAULT 'normal';
+      ALTER TABLE workout_sets      ADD COLUMN drop_index INTEGER NOT NULL DEFAULT 0;
+      CREATE TABLE programs (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        name       TEXT    NOT NULL,
+        position   INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT    NOT NULL
+      );
+      CREATE TABLE program_routines (
+        program_id INTEGER NOT NULL REFERENCES programs(id) ON DELETE CASCADE,
+        routine_id INTEGER NOT NULL REFERENCES routines(id) ON DELETE CASCADE,
+        phase      TEXT    NOT NULL,
+        position   INTEGER NOT NULL
+      );
+      CREATE INDEX idx_program_routines ON program_routines (program_id, phase, position);
+      ALTER TABLE workouts ADD COLUMN program_id INTEGER REFERENCES programs(id) ON DELETE SET NULL;
+    `);
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
