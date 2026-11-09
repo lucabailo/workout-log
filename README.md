@@ -22,9 +22,11 @@ Designed first in Figma (wireframes → colour system → hi-fi screens in light
 - **Your plan as routines:** write each day once (Push, Pull, Legs…) with sets, rep range, optional target weight and rest time per exercise
 - **Start a routine in one tap:** every set is created up front, pre-filled with the target (or last time's weight); the rest timer uses each exercise's rest time
 - **Summary after each workout:** duration, volume compared to the last time you did that routine, new records, and an offer to raise the routine's targets when you lifted more
+- **Supersets:** link exercises in a routine (A1, A2…); ticking a set in a superset skips the rest timer until the round is done
+- **Never lose track of a workout:** a mini bar above the tabs shows the timer and the next set from any screen; a workout left open for hours asks whether to resume, save it (ending at the last ticked set) or discard it
 - **Log a workout:** or start an empty one and add exercises as you go; fill in weight and reps and tick each set off
 - **"Previous" column and personal records:** what you lifted last time, and a PR badge when a set beats your best estimated 1RM
-- **Profile:** body weight trend, all-time totals, weekly goal and streak, a 12-week activity grid
+- **Profile:** body weight trend, all-time totals, weekly goal and streak, a 12-week activity grid and a month calendar of training days
 - **Body measurements:** weight plus optional smart-scale values (body fat, muscle mass, body water, visceral fat), with a chart per metric
 - **Exercise library:** 26 common exercises with their load type (barbell, dumbbell per hand, bodyweight + extra kg…), search, custom exercises, progress chart per exercise
 - **Safe by design:** a workout in progress is stored immediately, so closing the app loses nothing; unticked sets are dropped on finish
@@ -112,8 +114,8 @@ All three run on every push with GitHub Actions.
 ## Roadmap
 
 - Account and cloud sync with a Spring Boot + PostgreSQL backend (login screens are already designed)
-- Supersets, activity calendar, and a mini bar for the workout in progress (designed, not built yet)
 - Import body measurements from Apple Health / Health Connect
+- Count body weight in the volume of bodyweight exercises
 - An installable build with EAS
 
 ---

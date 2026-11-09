@@ -1,35 +1,68 @@
 import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Button, Card, EmptyState, Loading, Screen, SectionLabel, Txt } from '@/components/ui';
+import { UnfinishedPrompt } from '@/components/unfinished-prompt';
 import { Spacing } from '@/constants/theme';
 import {
-  getActiveWorkout,
-  getRoutineName,
+  activeWorkoutStatus,
+  deleteWorkout,
+  finishWorkout,
   listRoutines,
   listWorkoutSummaries,
   startWorkout,
   startWorkoutFromRoutine,
 } from '@/db/repository';
 import { formatClock, formatDay, formatDuration, formatKg } from '@/domain/format';
+import { looksForgotten } from '@/domain/routines';
 import type { RoutineSummary } from '@/domain/types';
 import { useDbQuery } from '@/hooks/use-db-query';
 import { useNow } from '@/hooks/use-now';
+import { confirm } from '@/lib/confirm';
+
+/** Set once per app launch: the open-workout check runs only the first time this tab loads. */
+let launchChecked = false;
 
 /** 01 / 02 / 03: start a routine or an empty workout, resume the one in progress, and the history. */
 export default function WorkoutsScreen() {
-  const { data, db } = useDbQuery(async (db) => {
-    const active = await getActiveWorkout(db);
-    return {
-      active,
-      activeName: active ? await getRoutineName(db, active.routineId) : null,
-      routines: await listRoutines(db),
-      workouts: await listWorkoutSummaries(db),
-    };
-  });
+  const { data, db, reload } = useDbQuery(async (db) => ({
+    active: await activeWorkoutStatus(db),
+    routines: await listRoutines(db),
+    workouts: await listWorkoutSummaries(db),
+  }));
+  const now = useNow(60_000);
+  const [isLaunch] = useState(() => !launchChecked);
+  const [promptDone, setPromptDone] = useState(false);
+
+  // On launch, a workout that is still open and recent is reopened directly (02b).
+  useEffect(() => {
+    if (launchChecked || !data) return;
+    launchChecked = true;
+    if (data.active && !looksForgotten(data.active.startedAt, Date.now())) router.push('/active');
+  }, [data]);
 
   if (!data) return <Loading />;
-  const { active, activeName, routines, workouts } = data;
+  const { active, routines, workouts } = data;
+  const showPrompt = isLaunch && !promptDone && !!active && looksForgotten(active.startedAt, now);
+
+  async function finishForgotten() {
+    if (!active) return;
+    setPromptDone(true);
+    if (await finishWorkout(db, active.workoutId, undefined, { endAtLastSet: true })) {
+      router.push({ pathname: '/summary', params: { id: active.workoutId } });
+    }
+    await reload();
+  }
+
+  async function discardForgotten() {
+    if (!active) return;
+    if (await confirm('Discard workout?', 'Everything logged in this workout will be lost.', 'Discard', true)) {
+      setPromptDone(true);
+      await deleteWorkout(db, active.workoutId);
+      await reload();
+    }
+  }
 
   async function startEmpty() {
     await startWorkout(db);
@@ -43,8 +76,20 @@ export default function WorkoutsScreen() {
 
   return (
     <Screen>
+      {showPrompt && (
+        <UnfinishedPrompt
+          status={active}
+          hoursAgo={Math.floor((now - Date.parse(active.startedAt)) / 3_600_000)}
+          onResume={() => {
+            setPromptDone(true);
+            router.push('/active');
+          }}
+          onFinish={finishForgotten}
+          onDiscard={discardForgotten}
+        />
+      )}
       {active ? (
-        <ActiveBanner startedAt={active.startedAt} name={activeName} />
+        <ActiveBanner startedAt={active.startedAt} name={active.routineName} />
       ) : routines.length > 0 ? (
         <>
           <SectionLabel>Start a routine</SectionLabel>

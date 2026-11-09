@@ -32,3 +32,31 @@ export function suggestedTargetUpdates(
 export function plannedSets(exercises: Pick<RoutineExercise, 'sets'>[]): number {
   return exercises.reduce((n, e) => n + e.sets, 0);
 }
+
+/**
+ * Labels for exercises that are part of a superset: the first group is A1, A2…, the next B1, B2…
+ * Exercises done on their own get no label. `supersetWithNext` links an exercise to the one after it.
+ */
+export function supersetLabels(exercises: Pick<RoutineExercise, 'exerciseId' | 'supersetWithNext'>[]): Map<number, string> {
+  const labels = new Map<number, string>();
+  let group = 0;
+  let index = 0;
+  exercises.forEach((e, i) => {
+    const linkedToPrevious = i > 0 && exercises[i - 1].supersetWithNext;
+    if (!linkedToPrevious && !e.supersetWithNext) return;
+    if (!linkedToPrevious) {
+      group++;
+      index = 0;
+    }
+    index++;
+    labels.set(e.exerciseId, `${String.fromCharCode(64 + group)}${index}`);
+  });
+  return labels;
+}
+
+/** A workout still open this long after it started was most likely forgotten. */
+export const FORGOTTEN_AFTER_MS = 2 * 60 * 60 * 1000;
+
+export function looksForgotten(startedAt: string, now: number): boolean {
+  return now - Date.parse(startedAt) >= FORGOTTEN_AFTER_MS;
+}

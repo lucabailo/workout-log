@@ -41,6 +41,7 @@ interface SetRow {
   reps: number;
   weight_kg: number;
   completed: number;
+  completed_at?: string | null;
 }
 
 const toExercise = (r: ExerciseRow): Exercise => ({
@@ -174,7 +175,12 @@ export async function getWorkout(db: Db, id: number): Promise<Workout | null> {
  * Ends a workout. Sets that were never ticked off are dropped. A workout with no completed
  * set is deleted instead of saved, and the function returns false.
  */
-export async function finishWorkout(db: Db, id: number, notes?: string): Promise<boolean> {
+export async function finishWorkout(
+  db: Db,
+  id: number,
+  notes?: string,
+  options: { endAtLastSet?: boolean } = {},
+): Promise<boolean> {
   let saved = false;
   await db.withTransactionAsync(async () => {
     await db.runAsync('DELETE FROM workout_sets WHERE workout_id = ? AND completed = 0', id);
@@ -186,9 +192,16 @@ export async function finishWorkout(db: Db, id: number, notes?: string): Promise
       await db.runAsync('DELETE FROM workouts WHERE id = ?', id);
       return;
     }
+    // A workout found open hours later ends when its last set was ticked, not now.
+    const last = options.endAtLastSet
+      ? await db.getFirstAsync<{ t: string | null }>(
+          'SELECT MAX(completed_at) AS t FROM workout_sets WHERE workout_id = ?',
+          id,
+        )
+      : null;
     await db.runAsync(
       'UPDATE workouts SET finished_at = ?, notes = ? WHERE id = ?',
-      now(),
+      last?.t ?? now(),
       notes?.trim() || null,
       id,
     );
@@ -354,11 +367,15 @@ export async function updateSet(
 ): Promise<void> {
   const current = await db.getFirstAsync<SetRow>('SELECT * FROM workout_sets WHERE id = ?', setId);
   if (!current) return;
+  const completed = changes.completed ?? current.completed === 1;
+  const wasCompleted = current.completed === 1;
   await db.runAsync(
-    'UPDATE workout_sets SET reps = ?, weight_kg = ?, completed = ? WHERE id = ?',
+    'UPDATE workout_sets SET reps = ?, weight_kg = ?, completed = ?, completed_at = ? WHERE id = ?',
     Math.max(0, Math.round(changes.reps ?? current.reps)),
     Math.max(0, changes.weightKg ?? current.weight_kg),
-    (changes.completed ?? current.completed === 1) ? 1 : 0,
+    completed ? 1 : 0,
+    // keep the original time when an already done set is edited
+    completed ? (wasCompleted ? (current.completed_at ?? now()) : now()) : null,
     setId,
   );
 }
@@ -455,6 +472,7 @@ interface RoutineExerciseRow {
   reps_max: number;
   target_kg: number | null;
   rest_seconds: number;
+  superset_with_next: number;
 }
 
 const toRoutineExercise = (r: RoutineExerciseRow): RoutineExercise => ({
@@ -466,12 +484,13 @@ const toRoutineExercise = (r: RoutineExerciseRow): RoutineExercise => ({
   repsMax: r.reps_max,
   targetKg: r.target_kg,
   restSeconds: r.rest_seconds,
+  supersetWithNext: r.superset_with_next === 1,
 });
 
 async function routineExercises(db: Db, routineId?: number): Promise<RoutineExerciseRow[]> {
   return db.getAllAsync<RoutineExerciseRow>(
     `SELECT re.routine_id, re.exercise_id, e.name, e.load_type, re.sets, re.reps_min, re.reps_max,
-            re.target_kg, re.rest_seconds
+            re.target_kg, re.rest_seconds, re.superset_with_next
      FROM routine_exercises re
      JOIN exercises e ON e.id = re.exercise_id
      ${routineId === undefined ? '' : 'WHERE re.routine_id = ?'}
@@ -505,7 +524,7 @@ export interface RoutineDraft {
   id?: number;
   name: string;
   notes?: string | null;
-  exercises: Omit<RoutineExercise, 'name' | 'loadType'>[];
+  exercises: (Omit<RoutineExercise, 'name' | 'loadType' | 'supersetWithNext'> & { supersetWithNext?: boolean })[];
 }
 
 /** Creates or replaces a routine and its exercises. Returns its id. */
@@ -533,8 +552,8 @@ export async function saveRoutine(db: Db, draft: RoutineDraft): Promise<number> 
       const repsMin = Math.max(1, Math.round(e.repsMin));
       await db.runAsync(
         `INSERT INTO routine_exercises
-           (routine_id, exercise_id, position, sets, reps_min, reps_max, target_kg, rest_seconds)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           (routine_id, exercise_id, position, sets, reps_min, reps_max, target_kg, rest_seconds, superset_with_next)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id!,
         e.exerciseId,
         position,
@@ -543,6 +562,8 @@ export async function saveRoutine(db: Db, draft: RoutineDraft): Promise<number> 
         Math.max(repsMin, Math.round(e.repsMax)),
         e.targetKg && e.targetKg > 0 ? e.targetKg : null,
         Math.max(0, Math.round(e.restSeconds)),
+        // the last exercise has nothing to be paired with
+        e.supersetWithNext && position < draft.exercises.length - 1 ? 1 : 0,
       );
     }
   });
@@ -731,4 +752,35 @@ export async function previousRoutineVolume(db: Db, routineId: number, beforeIso
     row.id,
   );
   return v?.volume ?? 0;
+}
+
+export interface ActiveStatus {
+  workoutId: number;
+  startedAt: string;
+  routineName: string | null;
+  doneSets: number;
+  totalSets: number;
+  /** The first exercise that still has a set to do, and which set that is. */
+  next: { exercise: string; setIndex: number; setCount: number } | null;
+}
+
+/** What the mini bar shows while a workout is open; null when none is. */
+export async function activeWorkoutStatus(db: Db): Promise<ActiveStatus | null> {
+  const workout = await getActiveWorkout(db);
+  if (!workout) return null;
+  const blocks = await getWorkoutBlocks(db, workout.id);
+  const sets = blocks.flatMap((b) => b.sets);
+  const nextBlock = blocks.find((b) => b.sets.some((s) => !s.completed));
+  const nextSet = nextBlock?.sets.find((s) => !s.completed);
+  return {
+    workoutId: workout.id,
+    startedAt: workout.startedAt,
+    routineName: await getRoutineName(db, workout.routineId),
+    doneSets: sets.filter((s) => s.completed).length,
+    totalSets: sets.length,
+    next:
+      nextBlock && nextSet
+        ? { exercise: nextBlock.exercise.name, setIndex: nextSet.setIndex, setCount: nextBlock.sets.length }
+        : null,
+  };
 }

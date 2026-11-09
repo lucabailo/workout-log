@@ -3,7 +3,7 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { Button, Card, EmptyState, ListRow, Loading, Screen, SectionLabel, Txt } from '@/components/ui';
 import { getActiveWorkout, getRoutine, startWorkoutFromRoutine } from '@/db/repository';
 import { formatDay, formatKg, formatReps, formatRest } from '@/domain/format';
-import { plannedSets } from '@/domain/routines';
+import { plannedSets, supersetLabels } from '@/domain/routines';
 import { useDbQuery } from '@/hooks/use-db-query';
 
 /** R2: read-only view of one routine, with the button to start it. */
@@ -24,6 +24,8 @@ export default function RoutineDetailScreen() {
     );
   }
 
+  const labels = supersetLabels(routine.exercises);
+
   async function start() {
     await startWorkoutFromRoutine(db, id);
     router.push('/active');
@@ -35,7 +37,12 @@ export default function RoutineDetailScreen() {
         options={{
           title: routine.name,
           headerRight: () => (
-            <Button title="Edit" variant="ghost" size="sm" onPress={() => router.push({ pathname: '/routine-edit', params: { id } })} />
+            <Button
+              title="Edit"
+              variant="ghost"
+              size="sm"
+              onPress={() => router.push({ pathname: '/routine-edit', params: { id } })}
+            />
           ),
         }}
       />
@@ -53,8 +60,10 @@ export default function RoutineDetailScreen() {
           <ListRow
             key={e.exerciseId}
             first={i === 0}
-            title={e.name}
-            detail={`${e.sets} sets × ${formatReps(e.repsMin, e.repsMax)} reps · rest ${formatRest(e.restSeconds)}`}
+            title={labels.has(e.exerciseId) ? `${labels.get(e.exerciseId)}  ${e.name}` : e.name}
+            detail={`${e.sets} sets × ${formatReps(e.repsMin, e.repsMax)} reps · ${
+              e.supersetWithNext ? 'superset, no rest' : `rest ${formatRest(e.restSeconds)}`
+            }`}
             value={e.targetKg === null ? '—' : `${e.loadType === 'bodyweight' ? '+' : ''}${formatKg(e.targetKg)} kg`}
             onPress={() => router.push(`/profile/exercises/${e.exerciseId}`)}
           />

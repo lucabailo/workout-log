@@ -67,6 +67,8 @@ export interface RoutineExercise {
   repsMax: number; // same as repsMin when there is no range
   targetKg: number | null; // null = no target, use last time's weight
   restSeconds: number;
+  /** Done back to back with the next exercise of the routine (no rest in between). */
+  supersetWithNext: boolean;
 }
 
 /** A day of the user's plan ("Push day"). */

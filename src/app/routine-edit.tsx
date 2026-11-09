@@ -7,6 +7,7 @@ import { Button, Card, EmptyState, Field, Loading, Screen, SectionLabel, Txt } f
 import { DEFAULT_REST_SECONDS, Radius, Spacing } from '@/constants/theme';
 import { deleteRoutine, getRoutine, getSettings, listExercises, saveRoutine } from '@/db/repository';
 import { formatKg, formatReps, formatRest, parseNumber, parseReps, parseRest } from '@/domain/format';
+import { supersetLabels } from '@/domain/routines';
 import type { LoadType } from '@/domain/types';
 import { useTheme } from '@/hooks/use-theme';
 import { confirm } from '@/lib/confirm';
@@ -22,6 +23,8 @@ interface Row {
   reps: string;
   kg: string;
   rest: string;
+  /** Done back to back with the next row (no rest in between). */
+  superset: boolean;
 }
 
 let nextKey = 1;
@@ -62,6 +65,7 @@ export default function RoutineEditScreen() {
             reps: formatReps(e.repsMin, e.repsMax),
             kg: e.targetKg === null ? '' : formatKg(e.targetKg).replace(',', ''),
             rest: formatRest(e.restSeconds).replace(' s', ''),
+            superset: e.supersetWithNext,
           })),
         );
       }
@@ -81,12 +85,14 @@ export default function RoutineEditScreen() {
     );
   }
 
+  const labels = supersetLabels(rows.map((r) => ({ exerciseId: r.exerciseId, supersetWithNext: r.superset })));
   const change = (next: Row[]) => {
     setRows(next);
     setDirty(true);
     setError(null);
   };
-  const update = (key: number, patch: Partial<Row>) => change(rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  const update = (key: number, patch: Partial<Row>) =>
+    change(rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const move = (index: number, by: -1 | 1) => {
     const next = [...rows];
     const [row] = next.splice(index, 1);
@@ -111,6 +117,7 @@ export default function RoutineEditScreen() {
             reps: '8–10',
             kg: '',
             rest: formatRest(defaultRest).replace(' s', ''),
+            superset: false,
           },
         ]);
         setDirty(true);
@@ -125,7 +132,7 @@ export default function RoutineEditScreen() {
     for (const r of rows) {
       const sets = Math.round(parseNumber(r.sets));
       const reps = parseReps(r.reps);
-      const rest = parseRest(r.rest);
+      const rest = r.superset ? 0 : parseRest(r.rest);
       if (sets < 1 || !reps || rest === null) {
         return setError(`Check the numbers for ${r.name}: sets ≥ 1, reps like 8 or 6–8, rest like 2:00.`);
       }
@@ -135,7 +142,9 @@ export default function RoutineEditScreen() {
         repsMin: reps.min,
         repsMax: reps.max,
         targetKg: r.kg.trim() ? parseNumber(r.kg) : null,
-        restSeconds: rest,
+        // the rest after a superset exercise is skipped, so it is stored as 0
+        restSeconds: r.superset ? 0 : rest,
+        supersetWithNext: r.superset,
       });
     }
     await saveRoutine(db, { id, name, notes, exercises });
@@ -184,30 +193,89 @@ export default function RoutineEditScreen() {
             Add the exercises of this day, in the order you do them.
           </Txt>
         )}
-        {rows.map((r, i) => (
-          <Card key={r.key}>
-            <View style={styles.header}>
-              <Txt variant="heading" style={{ flex: 1, fontSize: 17 }} numberOfLines={1}>
-                {r.name}
-              </Txt>
-              <IconButton label="↑" hint={`Move ${r.name} up`} disabled={i === 0} onPress={() => move(i, -1)} />
-              <IconButton label="↓" hint={`Move ${r.name} down`} disabled={i === rows.length - 1} onPress={() => move(i, 1)} />
-              <IconButton label="✕" hint={`Remove ${r.name}`} onPress={() => change(rows.filter((x) => x.key !== r.key))} />
+        {rows.map((r, i) => {
+          const label = labels.get(r.exerciseId);
+          const linkedToPrevious = i > 0 && rows[i - 1].superset;
+          return (
+            <View key={r.key} style={{ gap: Spacing.xs }}>
+              <Card style={label ? { borderColor: t.accent, borderWidth: 1.5 } : undefined}>
+                <View style={styles.header}>
+                  <Txt variant="heading" style={{ flex: 1, fontSize: 17 }} numberOfLines={1}>
+                    {label && (
+                      <Txt variant="heading" tone="accent" style={{ fontSize: 17 }}>
+                        {label}{' '}
+                      </Txt>
+                    )}
+                    {r.name}
+                  </Txt>
+                  <IconButton label="↑" hint={`Move ${r.name} up`} disabled={i === 0} onPress={() => move(i, -1)} />
+                  <IconButton
+                    label="↓"
+                    hint={`Move ${r.name} down`}
+                    disabled={i === rows.length - 1}
+                    onPress={() => move(i, 1)}
+                  />
+                  <IconButton
+                    label="✕"
+                    hint={`Remove ${r.name}`}
+                    onPress={() => change(rows.filter((x) => x.key !== r.key))}
+                  />
+                </View>
+                <View style={styles.targets}>
+                  <Mini
+                    label="Sets"
+                    value={r.sets}
+                    onChange={(sets) => update(r.key, { sets })}
+                    keyboard="number-pad"
+                  />
+                  <Mini
+                    label="Reps"
+                    value={r.reps}
+                    onChange={(reps) => update(r.key, { reps })}
+                    keyboard="numbers-and-punctuation"
+                  />
+                  <Mini
+                    label={r.loadType === 'bodyweight' ? '+Kg' : r.loadType === 'dumbbell' ? 'Kg/hand' : 'Kg'}
+                    value={r.kg}
+                    placeholder="—"
+                    onChange={(kg) => update(r.key, { kg })}
+                    keyboard="decimal-pad"
+                  />
+                  <Mini
+                    label="Rest"
+                    value={r.superset ? '—' : r.rest}
+                    onChange={(rest) => update(r.key, { rest })}
+                    keyboard="numbers-and-punctuation"
+                    editable={!r.superset}
+                  />
+                </View>
+                {r.superset && (
+                  <Txt variant="small" tone="muted">
+                    No rest: go straight to {rows[i + 1]?.name ?? 'the next exercise'}.
+                  </Txt>
+                )}
+                {!r.superset && linkedToPrevious && (
+                  <Txt variant="small" tone="muted">
+                    Rest after this one ends the superset round.
+                  </Txt>
+                )}
+              </Card>
+              {i < rows.length - 1 && (
+                <Pressable
+                  onPress={() => update(r.key, { superset: !r.superset })}
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: r.superset }}
+                  accessibilityLabel={`Superset ${r.name} with ${rows[i + 1].name}`}
+                  hitSlop={6}
+                  style={styles.link}>
+                  <Txt variant="small" tone={r.superset ? 'accent' : 'muted'} style={{ fontWeight: '700' }}>
+                    {r.superset ? '⇅ Superset · tap to unlink' : '⇅ Superset with next'}
+                  </Txt>
+                </Pressable>
+              )}
             </View>
-            <View style={styles.targets}>
-              <Mini label="Sets" value={r.sets} onChange={(sets) => update(r.key, { sets })} keyboard="number-pad" />
-              <Mini label="Reps" value={r.reps} onChange={(reps) => update(r.key, { reps })} keyboard="numbers-and-punctuation" />
-              <Mini
-                label={r.loadType === 'bodyweight' ? '+Kg' : r.loadType === 'dumbbell' ? 'Kg/hand' : 'Kg'}
-                value={r.kg}
-                placeholder="—"
-                onChange={(kg) => update(r.key, { kg })}
-                keyboard="decimal-pad"
-              />
-              <Mini label="Rest" value={r.rest} onChange={(rest) => update(r.key, { rest })} keyboard="numbers-and-punctuation" />
-            </View>
-          </Card>
-        ))}
+          );
+        })}
         <Button title="+ Add exercise" variant="secondary" onPress={addExercise} />
 
         <TextInput
@@ -239,12 +307,14 @@ function Mini({
   onChange,
   keyboard,
   placeholder,
+  editable = true,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   keyboard: 'number-pad' | 'decimal-pad' | 'numbers-and-punctuation';
   placeholder?: string;
+  editable?: boolean;
 }) {
   const t = useTheme();
   return (
@@ -260,13 +330,24 @@ function Mini({
         placeholderTextColor={t.textMuted}
         selectTextOnFocus
         accessibilityLabel={label}
-        style={[styles.mini, { backgroundColor: t.surfaceAlt, color: t.text }]}
+        editable={editable}
+        style={[styles.mini, { backgroundColor: t.surfaceAlt, color: editable ? t.text : t.textMuted }]}
       />
     </View>
   );
 }
 
-function IconButton({ label, hint, onPress, disabled }: { label: string; hint: string; onPress: () => void; disabled?: boolean }) {
+function IconButton({
+  label,
+  hint,
+  onPress,
+  disabled,
+}: {
+  label: string;
+  hint: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
   return (
     <Pressable
       onPress={onPress}
@@ -296,6 +377,7 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   icon: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
+  link: { alignSelf: 'center', paddingVertical: 2 },
   notes: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: Radius.md,

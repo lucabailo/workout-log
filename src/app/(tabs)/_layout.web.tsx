@@ -1,6 +1,7 @@
 import { TabList, TabSlot, TabTrigger, Tabs, type TabTriggerSlotProps } from 'expo-router/ui';
 import { Pressable, StyleSheet, Text, View, type PressableProps } from 'react-native';
 
+import { ActiveBar } from '@/components/active-bar';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -13,6 +14,7 @@ export default function WebTabLayout() {
   return (
     <Tabs>
       <TabSlot style={{ flex: 1 }} />
+      <ActiveBar style={{ marginHorizontal: Spacing.md, marginBottom: Spacing.sm }} />
       <TabList asChild>
         <View style={StyleSheet.flatten([styles.bar, { backgroundColor: t.surface, borderTopColor: t.border }])}>
           <TabTrigger name="routines" href="/routines" asChild>

@@ -140,3 +140,24 @@ export function recordCount(sessionsByExercise: Iterable<ExerciseSession[]>): nu
   }
   return count;
 }
+
+/** Local calendar day of a date or ISO timestamp, as "YYYY-MM-DD". */
+export function dayKey(date: Date | string): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * The days of one month laid out in weeks, Monday first (P4 calendar). Cells before the 1st
+ * and after the last day are null. `month` is 0-based, like Date.
+ */
+export function monthGrid(year: number, month: number): (Date | null)[][] {
+  const first = new Date(year, month, 1);
+  const days = new Date(year, month + 1, 0).getDate();
+  const cells: (Date | null)[] = Array((first.getDay() + 6) % 7).fill(null);
+  for (let d = 1; d <= days; d++) cells.push(new Date(year, month, d));
+  while (cells.length % 7) cells.push(null);
+  const weeks: (Date | null)[][] = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  return weeks;
+}

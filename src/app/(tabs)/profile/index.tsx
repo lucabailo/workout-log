@@ -35,7 +35,9 @@ export default function ProfileScreen() {
     <Screen>
       <Stack.Screen
         options={{
-          headerRight: () => <Button title="Settings" variant="ghost" size="sm" onPress={() => router.push('/profile/settings')} />,
+          headerRight: () => (
+            <Button title="Settings" variant="ghost" size="sm" onPress={() => router.push('/profile/settings')} />
+          ),
         }}
       />
       <BodyCard measurements={body} heightCm={settings.heightCm} />
@@ -52,16 +54,36 @@ export default function ProfileScreen() {
         <Stat value={String(records)} label="Records" />
       </View>
 
-      <Card>
-        <SectionLabel right={<Txt variant="small" tone="muted">{streak > 0 ? `🔥 ${streak} wk streak` : ''}</Txt>}>
-          Activity · last 12 weeks
-        </SectionLabel>
-        <ActivityGrid weeks={activityGrid(dates, 12)} />
-      </Card>
+      <Pressable
+        onPress={() => router.push('/profile/activity')}
+        accessibilityRole="button"
+        accessibilityHint="Opens the activity calendar"
+        style={({ pressed }) => pressed && { opacity: 0.7 }}>
+        <Card>
+          <SectionLabel
+            right={
+              <Txt variant="small" tone="accent" style={{ fontWeight: '700' }}>
+                Calendar ›
+              </Txt>
+            }>
+            Activity · last 12 weeks{streak > 0 ? ` · 🔥 ${streak} wk` : ''}
+          </SectionLabel>
+          <ActivityGrid weeks={activityGrid(dates, 12)} />
+        </Card>
+      </Pressable>
 
       <Card style={{ paddingVertical: 4 }}>
-        <ListRow first title="Exercises" detail="Library, records and progress per exercise" onPress={() => router.push('/profile/exercises')} />
-        <ListRow title="Settings" detail="Rest timer, weekly goal, body data" onPress={() => router.push('/profile/settings')} />
+        <ListRow
+          first
+          title="Exercises"
+          detail="Library, records and progress per exercise"
+          onPress={() => router.push('/profile/exercises')}
+        />
+        <ListRow
+          title="Settings"
+          detail="Rest timer, weekly goal, body data"
+          onPress={() => router.push('/profile/settings')}
+        />
       </Card>
     </Screen>
   );
@@ -96,7 +118,10 @@ function BodyCard({ measurements, heightCm }: { measurements: BodyMeasurement[];
   const monthAgo = clock - 30 * 86400000;
   const older = measurements.find((m) => Date.parse(m.measuredAt) <= monthAgo) ?? measurements[measurements.length - 1];
   const change = latest.weightKg - older.weightKg;
-  const recent = measurements.slice(0, 10).reverse().map((m) => m.weightKg);
+  const recent = measurements
+    .slice(0, 10)
+    .reverse()
+    .map((m) => m.weightKg);
   const composition = [
     heightCm ? `${heightCm} cm` : null,
     latest.bodyFatPct !== null ? `Body fat ${formatKg(latest.bodyFatPct)} %` : null,
@@ -112,7 +137,8 @@ function BodyCard({ measurements, heightCm }: { measurements: BodyMeasurement[];
           {older !== latest && (
             <Txt variant="small" tone="muted">
               {change > 0 ? '+' : change < 0 ? '−' : '±'}
-              {formatKg(Math.abs(change))} kg {Date.parse(older.measuredAt) <= monthAgo ? 'in 30 days' : 'since first entry'}
+              {formatKg(Math.abs(change))} kg{' '}
+              {Date.parse(older.measuredAt) <= monthAgo ? 'in 30 days' : 'since first entry'}
             </Txt>
           )}
         </View>

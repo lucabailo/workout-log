@@ -22,12 +22,15 @@ import {
   workoutPlan,
 } from '@/db/repository';
 import { formatClock, formatKg, formatReps, formatRest } from '@/domain/format';
+import { supersetLabels } from '@/domain/routines';
 import { newRecordIndexes, volume } from '@/domain/stats';
 import { useDbQuery } from '@/hooks/use-db-query';
 import { useNow } from '@/hooks/use-now';
+import { useTheme } from '@/hooks/use-theme';
 import { confirm } from '@/lib/confirm';
 
 export default function ActiveWorkoutScreen() {
+  const t = useTheme();
   const [restEndsAt, setRestEndsAt] = useState<number | null>(null);
 
   const { data, db, reload } = useDbQuery(async (db) => {
@@ -46,6 +49,7 @@ export default function ActiveWorkoutScreen() {
       settings: await getSettings(db),
       routineName: await getRoutineName(db, workout.routineId),
       blocks: blocks.map((b, i) => ({ ...b, ...extras[i], target: plan.get(b.exercise.id) ?? null })),
+      labels: supersetLabels([...plan.values()]),
     };
   });
 
@@ -65,13 +69,14 @@ export default function ActiveWorkoutScreen() {
     );
   }
 
-  const { workout, blocks, settings, routineName } = data;
+  const { workout, blocks, settings, routineName, labels } = data;
   const completed = blocks.flatMap((b) => b.sets.filter((s) => s.completed));
   const totalSets = blocks.reduce((n, b) => n + b.sets.length, 0);
 
-  async function toggle(setId: number, wasDone: boolean, restSeconds: number) {
+  /** restSeconds is null inside a superset: go straight to the next exercise. */
+  async function toggle(setId: number, wasDone: boolean, restSeconds: number | null) {
     await updateSet(db, setId, { completed: !wasDone });
-    if (!wasDone) setRestEndsAt(restDeadline(restSeconds));
+    if (!wasDone && restSeconds !== null) setRestEndsAt(restDeadline(restSeconds));
     await reload();
   }
 
@@ -134,10 +139,20 @@ export default function ActiveWorkoutScreen() {
           );
           const doneSets = b.sets.filter((s) => s.completed);
           const rest = b.target?.restSeconds ?? settings.defaultRestSeconds;
+          const inSuperset = b.target?.supersetWithNext ?? false;
+          const label = labels.get(b.exercise.id);
+          const nextName = inSuperset
+            ? blocks.find((x) => labels.get(x.exercise.id) === nextLabel(label))?.exercise.name
+            : undefined;
           return (
-            <Card key={b.exercise.id}>
+            <Card key={b.exercise.id} style={label ? { borderColor: t.accent, borderWidth: 1.5 } : undefined}>
               <View style={styles.blockHeader}>
                 <Txt variant="heading" style={{ flex: 1 }}>
+                  {label && (
+                    <Txt variant="heading" tone="accent">
+                      {label}{' '}
+                    </Txt>
+                  )}
                   {b.exercise.name}
                 </Txt>
                 <Button
@@ -145,7 +160,14 @@ export default function ActiveWorkoutScreen() {
                   variant="ghost"
                   size="sm"
                   onPress={async () => {
-                    if (await confirm(`Remove ${b.exercise.name}?`, 'Its sets in this workout will be deleted.', 'Remove', true)) {
+                    if (
+                      await confirm(
+                        `Remove ${b.exercise.name}?`,
+                        'Its sets in this workout will be deleted.',
+                        'Remove',
+                        true,
+                      )
+                    ) {
                       await removeExerciseFromWorkout(db, workout.id, b.exercise.id);
                       await reload();
                     }
@@ -155,7 +177,8 @@ export default function ActiveWorkoutScreen() {
               {b.target && (
                 <Txt variant="small" tone="muted" style={{ fontWeight: '600' }}>
                   Target {b.target.sets} × {formatReps(b.target.repsMin, b.target.repsMax)}
-                  {b.target.targetKg !== null ? ` · ${formatKg(b.target.targetKg)} kg` : ''} · rest {formatRest(rest)}
+                  {b.target.targetKg !== null ? ` · ${formatKg(b.target.targetKg)} kg` : ''} ·{' '}
+                  {inSuperset ? `no rest, then ${nextName ?? 'next exercise'}` : `rest ${formatRest(rest)}`}
                 </Txt>
               )}
               <SetHeader loadType={b.exercise.loadType} />
@@ -167,7 +190,7 @@ export default function ActiveWorkoutScreen() {
                   previous={b.previous[i]}
                   isRecord={s.completed && records.includes(doneSets.indexOf(s))}
                   onChange={(changes) => updateSet(db, s.id, changes)}
-                  onToggle={() => toggle(s.id, s.completed, rest)}
+                  onToggle={() => toggle(s.id, s.completed, inSuperset ? null : rest)}
                   onDelete={async () => {
                     if (await confirm(`Delete set ${s.setIndex}?`, '', 'Delete', true)) {
                       await deleteSet(db, s.id);
@@ -204,6 +227,11 @@ export default function ActiveWorkoutScreen() {
 function useElapsed(startedAt: string | undefined) {
   const now = useNow();
   return startedAt ? (now - Date.parse(startedAt)) / 1000 : 0;
+}
+
+/** "A1" → "A2": the exercise that follows in the same superset. */
+function nextLabel(label: string | undefined) {
+  return label ? `${label[0]}${Number(label.slice(1)) + 1}` : undefined;
 }
 
 /** When the rest period that starts now should end. */

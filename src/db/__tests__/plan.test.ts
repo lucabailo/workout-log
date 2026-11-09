@@ -2,6 +2,7 @@
  * @jest-environment node
  */
 import {
+  activeWorkoutStatus,
   addSet,
   allSessionsByExercise,
   allTimeTotals,
@@ -9,6 +10,7 @@ import {
   finishWorkout,
   getActiveWorkout,
   getRoutine,
+  getWorkout,
   getSettings,
   getWorkoutBlocks,
   listExercises,
@@ -179,5 +181,53 @@ describe('settings', () => {
     await saveSettings(db, { weeklyGoal: 4, heightCm: 182, onboarded: true });
     await saveSettings(db, { weeklyGoal: 5 });
     expect(await getSettings(db)).toMatchObject({ weeklyGoal: 5, heightCm: 182, onboarded: true });
+  });
+});
+
+describe('supersets', () => {
+  it('stores the link to the next exercise, never on the last one', async () => {
+    const id = await saveRoutine(db, {
+      name: 'Push',
+      exercises: [
+        { exerciseId: bench, sets: 3, repsMin: 8, repsMax: 8, targetKg: null, restSeconds: 0, supersetWithNext: true },
+        { exerciseId: ohp, sets: 3, repsMin: 8, repsMax: 8, targetKg: null, restSeconds: 90, supersetWithNext: true },
+      ],
+    });
+    expect((await getRoutine(db, id))?.exercises.map((e) => e.supersetWithNext)).toEqual([true, false]);
+  });
+});
+
+describe('open workouts', () => {
+  it('reports progress and the next set to do', async () => {
+    const w = await startWorkoutFromRoutine(db, await pushDay());
+    const sets = (await getWorkoutBlocks(db, w))[0].sets;
+    await updateSet(db, sets[0].id, { completed: true });
+    expect(await activeWorkoutStatus(db)).toMatchObject({
+      workoutId: w,
+      routineName: 'Push day',
+      doneSets: 1,
+      totalSets: 5,
+      next: { exercise: 'Bench Press', setIndex: 2, setCount: 3 },
+    });
+  });
+
+  it('can end a forgotten workout at its last ticked set', async () => {
+    const w = await startWorkoutFromRoutine(db, await pushDay());
+    const set = (await getWorkoutBlocks(db, w))[0].sets[0];
+    await updateSet(db, set.id, { completed: true });
+    await db.runAsync('UPDATE workout_sets SET completed_at = ? WHERE id = ?', '2026-11-09T11:00:00.000Z', set.id);
+    await finishWorkout(db, w, undefined, { endAtLastSet: true });
+    expect((await getWorkout(db, w))?.finishedAt).toBe('2026-11-09T11:00:00.000Z');
+    expect(await activeWorkoutStatus(db)).toBeNull();
+  });
+
+  it('keeps the first tick time when a done set is edited', async () => {
+    const w = await startWorkoutFromRoutine(db, await pushDay());
+    const set = (await getWorkoutBlocks(db, w))[0].sets[0];
+    await updateSet(db, set.id, { completed: true });
+    await db.runAsync('UPDATE workout_sets SET completed_at = ? WHERE id = ?', '2026-11-09T11:00:00.000Z', set.id);
+    await updateSet(db, set.id, { weightKg: 85 });
+    const row = await db.getFirstAsync<{ completed_at: string }>('SELECT completed_at FROM workout_sets WHERE id = ?', set.id);
+    expect(row?.completed_at).toBe('2026-11-09T11:00:00.000Z');
   });
 });

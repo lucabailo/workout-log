@@ -28,14 +28,6 @@ export default function RoutinesScreen() {
   return (
     <Screen>
       <Button title="+ New routine" onPress={() => router.push('/routine-edit')} />
-      {active && (
-        <Card>
-          <Txt variant="small" tone="muted">
-            A workout is in progress, so routines can&apos;t be started right now.
-          </Txt>
-          <Button title="Resume workout" variant="secondary" size="sm" onPress={() => router.push('/active')} />
-        </Card>
-      )}
       {routines.length === 0 ? (
         <EmptyState
           title="No routines yet"

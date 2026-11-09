@@ -130,6 +130,13 @@ const MIGRATIONS: ((db: Db) => Promise<void>)[] = [
       await db.runAsync('UPDATE exercises SET load_type = ? WHERE name = ? AND is_custom = 0', type, name);
     }
   },
+  // v3: when each set was ticked off (to close a forgotten workout at its real end) and supersets.
+  async (db) => {
+    await db.execAsync(`
+      ALTER TABLE workout_sets      ADD COLUMN completed_at TEXT;
+      ALTER TABLE routine_exercises ADD COLUMN superset_with_next INTEGER NOT NULL DEFAULT 0;
+    `);
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

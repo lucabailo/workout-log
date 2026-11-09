@@ -1,5 +1,5 @@
 import { formatDateInput, formatReps, formatRest, parseDate, parseReps, parseRest } from '../format';
-import { plannedSets, suggestedTargetUpdates } from '../routines';
+import { looksForgotten, plannedSets, suggestedTargetUpdates, supersetLabels } from '../routines';
 import { activityGrid, recordCount, weeklyStreak } from '../stats';
 import type { ExerciseSession, RoutineExercise } from '../types';
 
@@ -76,9 +76,9 @@ describe('recordCount', () => {
 
 describe('suggestedTargetUpdates', () => {
   const plan: RoutineExercise[] = [
-    { exerciseId: 1, name: 'Bench Press', loadType: 'barbell', sets: 4, repsMin: 6, repsMax: 8, targetKg: 80, restSeconds: 150 },
-    { exerciseId: 2, name: 'Overhead Press', loadType: 'barbell', sets: 3, repsMin: 8, repsMax: 8, targetKg: 45, restSeconds: 120 },
-    { exerciseId: 3, name: 'Lateral Raise', loadType: 'dumbbell', sets: 3, repsMin: 12, repsMax: 15, targetKg: null, restSeconds: 60 },
+    { exerciseId: 1, name: 'Bench Press', loadType: 'barbell', sets: 4, repsMin: 6, repsMax: 8, targetKg: 80, restSeconds: 150, supersetWithNext: false },
+    { exerciseId: 2, name: 'Overhead Press', loadType: 'barbell', sets: 3, repsMin: 8, repsMax: 8, targetKg: 45, restSeconds: 120, supersetWithNext: false },
+    { exerciseId: 3, name: 'Lateral Raise', loadType: 'dumbbell', sets: 3, repsMin: 12, repsMax: 15, targetKg: null, restSeconds: 60, supersetWithNext: false },
   ];
 
   it('suggests the heaviest weight done for at least the bottom of the range', () => {
@@ -126,5 +126,33 @@ describe('formatDateInput', () => {
     // "14/0" with the 0 deleted becomes "14/", which is shown as "14"
     expect(formatDateInput('14/')).toBe('14');
     expect(formatDateInput('14/03/')).toBe('14/03');
+  });
+});
+
+describe('supersetLabels', () => {
+  it('labels linked exercises A1, A2… and leaves single ones alone', () => {
+    const plan = [
+      { exerciseId: 1, supersetWithNext: false },
+      { exerciseId: 2, supersetWithNext: true },
+      { exerciseId: 3, supersetWithNext: false },
+      { exerciseId: 4, supersetWithNext: true },
+      { exerciseId: 5, supersetWithNext: true },
+      { exerciseId: 6, supersetWithNext: false },
+    ];
+    expect([...supersetLabels(plan)]).toEqual([
+      [2, 'A1'],
+      [3, 'A2'],
+      [4, 'B1'],
+      [5, 'B2'],
+      [6, 'B3'],
+    ]);
+  });
+});
+
+describe('looksForgotten', () => {
+  it('is true from two hours after the start', () => {
+    const start = '2026-11-09T10:00:00.000Z';
+    expect(looksForgotten(start, Date.parse('2026-11-09T11:59:00.000Z'))).toBe(false);
+    expect(looksForgotten(start, Date.parse('2026-11-09T12:00:00.000Z'))).toBe(true);
   });
 });
