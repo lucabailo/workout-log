@@ -21,6 +21,7 @@ import { programSlot } from '@/domain/plan';
 import type { RoutineSummary } from '@/domain/types';
 import { useDbQuery } from '@/hooks/use-db-query';
 import { useNow } from '@/hooks/use-now';
+import { refreshReminders } from '@/lib/reminders';
 import { confirm } from '@/lib/confirm';
 
 /** Set once per app launch: the open-workout check runs only the first time this tab loads. */
@@ -59,7 +60,9 @@ export default function WorkoutsScreen() {
   async function finishForgotten() {
     if (!active) return;
     setPromptDone(true);
-    if (await finishWorkout(db, active.workoutId, undefined, { endAtLastSet: true })) {
+    const saved = await finishWorkout(db, active.workoutId, undefined, { endAtLastSet: true });
+    await refreshReminders(db);
+    if (saved) {
       router.push({ pathname: '/summary', params: { id: active.workoutId } });
     }
     await reload();
@@ -70,6 +73,7 @@ export default function WorkoutsScreen() {
     if (await confirm('Discard workout?', 'Everything logged in this workout will be lost.', 'Discard', true)) {
       setPromptDone(true);
       await deleteWorkout(db, active.workoutId);
+      await refreshReminders(db);
       await reload();
     }
   }

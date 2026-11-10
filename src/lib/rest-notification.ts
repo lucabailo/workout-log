@@ -15,7 +15,7 @@ export async function scheduleRestEnd(endsAt: number, nextUp: string | null) {
   await scheduleAt(
     ID,
     endsAt,
-    'rest',
+    { kind: 'rest', path: '/active' },
     { title: 'Rest is over', body: nextUp ? `Next: ${nextUp}` : 'Time for your next set' },
     'rest-timer',
   );

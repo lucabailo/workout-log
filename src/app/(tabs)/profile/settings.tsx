@@ -10,7 +10,7 @@ import type { Settings } from '@/domain/types';
 import { useDbQuery } from '@/hooks/use-db-query';
 import { useTheme } from '@/hooks/use-theme';
 import { ensureNotificationPermission } from '@/lib/notifications';
-import { refreshWeighInReminder } from '@/lib/weigh-in-reminder';
+import { refreshReminders } from '@/lib/reminders';
 
 const RESTS = [60, 90, 120, 180] as const;
 const GOALS = [2, 3, 4, 5, 6] as const;
@@ -34,9 +34,8 @@ function SettingsForm({ initial }: { initial: Settings }) {
 
   const update = (changes: Partial<Settings>) => {
     setS({ ...s, ...changes });
-    saveSettings(db, changes).then(() => {
-      if ('weighInReminder' in changes || 'weighInHour' in changes) refreshWeighInReminder(db);
-    });
+    // Reminders depend on several settings (the weekly goal too), so re-plan them after any change.
+    saveSettings(db, changes).then(() => refreshReminders(db));
   };
 
   /** Turning a reminder on asks for notification permission first. */
@@ -129,6 +128,42 @@ function SettingsForm({ initial }: { initial: Settings }) {
             format={(h) => `${h}:00`}
           />
         )}
+        <ReminderRow
+          title="Workout left open"
+          detail="If a workout is still open 2 hours after you started it."
+          value={s.forgottenWorkoutReminder}
+          onChange={async (v) => {
+            await allow(v);
+            update({ forgottenWorkoutReminder: v });
+          }}
+        />
+        <ReminderRow
+          title="Weekly goal"
+          detail="Sunday at 17:00, if you haven’t reached your weekly goal yet."
+          value={s.weeklyGoalReminder}
+          onChange={async (v) => {
+            await allow(v);
+            update({ weeklyGoalReminder: v });
+          }}
+        />
+        <ReminderRow
+          title="Days without training"
+          detail="After 4 days without a workout, with the next routine of your program."
+          value={s.inactivityReminder}
+          onChange={async (v) => {
+            await allow(v);
+            update({ inactivityReminder: v });
+          }}
+        />
+        <ReminderRow
+          title="Progression complete"
+          detail="When a ★ progression in % finishes all its steps: time to update your 1RM."
+          value={s.cycleReminder}
+          onChange={async (v) => {
+            await allow(v);
+            update({ cycleReminder: v });
+          }}
+        />
       </Card>
 
       <SectionLabel>Body</SectionLabel>
@@ -169,3 +204,37 @@ const styles = StyleSheet.create({
   switchRow: { flexDirection: 'row', alignItems: 'center' },
   row: { flexDirection: 'row', gap: Spacing.md },
 });
+
+/** One reminder: title, when it fires, and its switch. */
+function ReminderRow({
+  title,
+  detail,
+  value,
+  onChange,
+}: {
+  title: string;
+  detail: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  const t = useTheme();
+  return (
+    <>
+      <View style={[styles.divider, { backgroundColor: t.border }]} />
+      <View style={styles.switchRow}>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Txt style={{ fontWeight: '600' }}>{title}</Txt>
+          <Txt variant="small" tone="muted">
+            {detail}
+          </Txt>
+        </View>
+        <Switch
+          value={value}
+          onValueChange={onChange}
+          trackColor={{ true: t.accent, false: t.surfaceAlt }}
+          accessibilityLabel={`${title} reminder`}
+        />
+      </View>
+    </>
+  );
+}

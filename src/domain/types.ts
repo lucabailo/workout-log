@@ -124,5 +124,15 @@ export interface Settings {
   /** Reminder a week after the last weigh-in, at `weighInHour` o'clock. */
   weighInReminder: boolean;
   weighInHour: number;
+  /** Notification when a workout has been open for 2 hours. */
+  forgottenWorkoutReminder: boolean;
+  /** Sunday afternoon notification while the weekly goal is not reached. */
+  weeklyGoalReminder: boolean;
+  /** Notification after a few days without workouts. */
+  inactivityReminder: boolean;
+  /** Notification when a % progression completes all its steps (time to update the 1RM). */
+  cycleReminder: boolean;
+  /** Last workout whose finished progressions were already announced. */
+  cycleNoticeWorkoutId: number;
   onboarded: boolean;
 }

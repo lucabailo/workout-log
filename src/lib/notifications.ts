@@ -8,12 +8,13 @@ import { Platform } from 'react-native';
  */
 export const notificationsSupported = Platform.OS === 'android' || Platform.OS === 'ios';
 
-export type NotificationKind = 'rest' | 'weigh-in';
+export type NotificationKind = 'rest' | 'weigh-in' | 'forgotten' | 'goal' | 'inactivity' | 'cycle';
 
-const OPEN: Record<NotificationKind, '/active' | '/log-measurement'> = {
-  rest: '/active',
-  'weigh-in': '/log-measurement',
-};
+/** What a notification carries: its kind and the screen a tap opens. */
+export interface NotificationData {
+  kind: NotificationKind;
+  path: string;
+}
 
 let setUp = false;
 
@@ -39,14 +40,14 @@ export function setUpNotifications() {
     }).catch(() => {});
     Notifications.setNotificationChannelAsync('reminders', {
       name: 'Reminders',
-      description: 'Weekly weigh-in and other reminders',
+      description: 'Weigh-in, weekly goal, workout left open and other reminders',
       importance: Notifications.AndroidImportance.DEFAULT,
     }).catch(() => {});
     /* eslint-enable import/namespace */
   }
   Notifications.addNotificationResponseReceivedListener((response) => {
-    const kind = response.notification.request.content.data?.kind as NotificationKind | undefined;
-    if (kind && OPEN[kind]) router.push(OPEN[kind]);
+    const path = response.notification.request.content.data?.path;
+    if (typeof path === 'string' && path.startsWith('/')) router.push(path as never);
   });
 }
 
@@ -63,14 +64,14 @@ export async function ensureNotificationPermission(): Promise<boolean> {
 export async function scheduleAt(
   id: string,
   at: Date | number,
-  kind: NotificationKind,
+  data: NotificationData,
   content: { title: string; body: string },
   channelId: string,
 ) {
   if (!notificationsSupported || !(await ensureNotificationPermission())) return;
   await Notifications.scheduleNotificationAsync({
     identifier: id,
-    content: { ...content, data: { kind }, sound: true },
+    content: { ...content, data: { ...data }, sound: true },
     trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: at, channelId },
   });
 }

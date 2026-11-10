@@ -11,6 +11,7 @@ import {
   getProgram,
   getRoutine,
   getWorkoutBlocks,
+  lastFinishedCycle,
   listExercises,
   listPrograms,
   listWorkoutSummaries,
@@ -117,6 +118,21 @@ describe('advanced plans', () => {
     [block] = await getWorkoutBlocks(db, second);
     expect(block.sets.map((s) => [s.reps, s.weightKg])).toEqual(Array(4).fill([9, 45]));
     expect((await workoutTargets(db, second)).get(ohp)!.step).toBe(1);
+  });
+
+  it('reports a % progression that just finished all its steps', async () => {
+    const plan = {
+      ...defaultPlan(),
+      mode: 'progression' as const,
+      progression: { unit: 'pct' as const, reserveRep: false, steps: [70, 80].map((load) => ({ sets: parseScheme('2x5')!, load })) },
+    };
+    const r = await saveRoutine(db, { name: 'D', exercises: [ex(ohp, plan), ex(raise)] });
+    await doWorkout(r);
+    expect(await lastFinishedCycle(db)).toBeNull();
+    const second = await doWorkout(r);
+    expect(await lastFinishedCycle(db)).toMatchObject({ workoutId: second, exercises: [{ exerciseId: ohp, name: 'Overhead Press' }] });
+    await doWorkout(r);
+    expect(await lastFinishedCycle(db)).toBeNull();
   });
 
   it('estimates the 1RM from history when none was typed', async () => {

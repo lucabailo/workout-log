@@ -2,19 +2,22 @@ import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { LineChart } from '@/components/line-chart';
+import { OneRepMaxCard } from '@/components/one-rep-max-card';
 import { SetSummary } from '@/components/set-summary';
 import { Card, EmptyState, Loading, Screen, Stat, Txt } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
-import { exerciseSessions, getExercise } from '@/db/repository';
+import { exerciseSessions, getExercise, typedOneRepMax } from '@/db/repository';
 import { formatDay, formatKg } from '@/domain/format';
 import { oneRepMaxProgress, personalRecords, volume } from '@/domain/stats';
 import { useDbQuery } from '@/hooks/use-db-query';
 
 export default function ExerciseDetailScreen() {
   const id = Number(useLocalSearchParams<{ id: string }>().id);
-  const { data } = useDbQuery(async (db) => {
+  const { data, reload } = useDbQuery(async (db) => {
     const exercise = await getExercise(db, id);
-    return exercise ? { exercise, sessions: await exerciseSessions(db, id) } : null;
+    return exercise
+      ? { exercise, sessions: await exerciseSessions(db, id), typed: await typedOneRepMax(db, id) }
+      : null;
   });
 
   if (data === undefined) return <Loading />;
@@ -26,14 +29,25 @@ export default function ExerciseDetailScreen() {
     );
   }
 
-  const { exercise, sessions } = data;
+  const { exercise, sessions, typed } = data;
   const pr = personalRecords(sessions);
   const progress = oneRepMaxProgress(sessions);
 
   return (
     <Screen>
       <Stack.Screen options={{ title: exercise.name }} />
-      <Txt tone="muted">{exercise.muscleGroup}{exercise.isCustom ? ' · custom exercise' : ''}</Txt>
+      <Txt tone="muted">
+        {exercise.muscleGroup}
+        {exercise.isCustom ? ' · custom exercise' : ''}
+      </Txt>
+
+      <OneRepMaxCard
+        key={String(typed)}
+        exerciseId={exercise.id}
+        typed={typed}
+        estimated={pr.bestOneRepMaxKg}
+        onSaved={reload}
+      />
 
       {sessions.length === 0 ? (
         <EmptyState

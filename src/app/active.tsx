@@ -30,6 +30,7 @@ import { useDbQuery } from '@/hooks/use-db-query';
 import { useNow } from '@/hooks/use-now';
 import { useTheme } from '@/hooks/use-theme';
 import { confirm } from '@/lib/confirm';
+import { refreshReminders } from '@/lib/reminders';
 import { cancelRestEnd, scheduleRestEnd } from '@/lib/rest-notification';
 
 export default function ActiveWorkoutScreen() {
@@ -66,6 +67,12 @@ export default function ActiveWorkoutScreen() {
   const elapsed = useElapsed(data?.workout.startedAt);
   const stopRest = useCallback((endsAt: number | null) => setRestEndsAt(endsAt), []);
   const notify = data?.settings.notifyOnRestEnd ?? false;
+
+  // A workout just started (or reopened): plan the "still training?" reminder, drop the inactivity one.
+  const workoutId = data?.workout.id;
+  useEffect(() => {
+    if (workoutId !== undefined) refreshReminders(db).catch(() => {});
+  }, [db, workoutId]);
 
   // Mirror the on-screen timer with a notification for when the phone is locked or in another app.
   useEffect(() => {
@@ -112,6 +119,7 @@ export default function ActiveWorkoutScreen() {
       if (discard) {
         await cancelRestEnd();
         await deleteWorkout(db, workout.id);
+        await refreshReminders(db);
         router.back();
       }
       return;
@@ -124,6 +132,7 @@ export default function ActiveWorkoutScreen() {
     if (await confirm('Finish workout?', message, 'Finish')) {
       await cancelRestEnd();
       await finishWorkout(db, workout.id);
+      await refreshReminders(db);
       router.replace({ pathname: '/summary', params: { id: workout.id } });
     }
   }
@@ -132,6 +141,7 @@ export default function ActiveWorkoutScreen() {
     if (await confirm('Discard workout?', 'Everything logged in this workout will be lost.', 'Discard', true)) {
       await cancelRestEnd();
       await deleteWorkout(db, workout.id);
+      await refreshReminders(db);
       router.back();
     }
   }

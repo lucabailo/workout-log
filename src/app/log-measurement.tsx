@@ -7,7 +7,7 @@ import { bodyValuesFrom, EMPTY_BODY, SmartScaleFields, toMeasurement } from '@/c
 import { Button, DateField, Field, Loading, Screen, Txt } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
 import { deleteMeasurement, getMeasurement, saveMeasurement } from '@/db/repository';
-import { refreshWeighInReminder } from '@/lib/weigh-in-reminder';
+import { refreshReminders } from '@/lib/reminders';
 import { formatDate, parseDate, todayIso } from '@/domain/format';
 import { useTheme } from '@/hooks/use-theme';
 import { confirm } from '@/lib/confirm';
@@ -47,14 +47,14 @@ export default function LogMeasurementScreen() {
     const m = toMeasurement(values, day);
     if (!m) return setError('Enter your body weight.');
     await saveMeasurement(db, m, id);
-    await refreshWeighInReminder(db);
+    await refreshReminders(db);
     router.back();
   }
 
   async function remove() {
     if (id !== undefined && (await confirm('Delete measurement?', '', 'Delete', true))) {
       await deleteMeasurement(db, id);
-      await refreshWeighInReminder(db);
+      await refreshReminders(db);
       router.back();
     }
   }

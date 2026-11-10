@@ -14,6 +14,7 @@ import type {
   WorkoutSummary,
 } from '@/domain/types';
 import { dropWeights, readPlan, targetsFor, writePlan, type SetKind, type TodayTargets } from '@/domain/plan';
+import { finishedCycles } from '@/domain/reminders';
 import { personalRecords } from '@/domain/stats';
 
 // ---------------------------------------------------------------------------
@@ -846,6 +847,11 @@ export const DEFAULT_SETTINGS: Settings = {
   notifyOnRestEnd: true,
   weighInReminder: false,
   weighInHour: 8,
+  forgottenWorkoutReminder: true,
+  weeklyGoalReminder: false,
+  inactivityReminder: false,
+  cycleReminder: true,
+  cycleNoticeWorkoutId: 0,
   onboarded: false,
 };
 
@@ -998,4 +1004,40 @@ export async function deleteProgram(db: Db, id: number): Promise<void> {
     await db.runAsync('DELETE FROM program_routines WHERE program_id = ?', id);
     await db.runAsync('DELETE FROM programs WHERE id = ?', id);
   });
+}
+
+/**
+ * The most recent finished workout of a routine, with the % progressions it just took through
+ * their last step (null if none did). Drives the "update your 1RM" reminder.
+ */
+export async function lastFinishedCycle(
+  db: Db,
+): Promise<{ workoutId: number; finishedAt: string; exercises: { exerciseId: number; name: string }[] } | null> {
+  const w = await db.getFirstAsync<{ id: number; routine_id: number; started_at: string; finished_at: string }>(
+    `SELECT id, routine_id, started_at, finished_at FROM workouts
+     WHERE finished_at IS NOT NULL AND routine_id IS NOT NULL
+     ORDER BY finished_at DESC, id DESC LIMIT 1`,
+  );
+  if (!w) return null;
+  const done = (await timesRoutineDone(db, w.routine_id, w.started_at)) + 1;
+  const pct = (await routineExercises(db, w.routine_id))
+    .map(toRoutineExercise)
+    .filter((e) => e.plan.mode === 'progression' && e.plan.progression?.unit === 'pct')
+    .map((e) => ({ exerciseId: e.exerciseId, name: e.name, steps: e.plan.progression!.steps.length }));
+  const finished = finishedCycles(pct, done);
+  if (finished.length === 0) return null;
+  return {
+    workoutId: w.id,
+    finishedAt: w.finished_at,
+    exercises: finished.map(({ exerciseId, name }) => ({ exerciseId, name })),
+  };
+}
+
+/** The one-rep max the user typed for an exercise, or null when it is estimated. */
+export async function typedOneRepMax(db: Db, exerciseId: number): Promise<number | null> {
+  const row = await db.getFirstAsync<{ one_rep_max: number | null }>(
+    'SELECT one_rep_max FROM exercises WHERE id = ?',
+    exerciseId,
+  );
+  return row?.one_rep_max ?? null;
 }

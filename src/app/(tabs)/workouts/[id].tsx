@@ -9,6 +9,7 @@ import { formatDay, formatDuration, formatKg } from '@/domain/format';
 import { newRecordIndexes, volume } from '@/domain/stats';
 import { useDbQuery } from '@/hooks/use-db-query';
 import { confirm } from '@/lib/confirm';
+import { refreshReminders } from '@/lib/reminders';
 
 export default function WorkoutDetailScreen() {
   const id = Number(useLocalSearchParams<{ id: string }>().id);
@@ -43,6 +44,7 @@ export default function WorkoutDetailScreen() {
   async function remove() {
     if (await confirm('Delete workout?', 'This workout and all its sets will be removed.', 'Delete', true)) {
       await deleteWorkout(db, id);
+      await refreshReminders(db);
       router.back();
     }
   }
