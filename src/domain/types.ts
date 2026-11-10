@@ -121,5 +121,8 @@ export interface Settings {
   vibrateOnRestEnd: boolean;
   /** Notification when the rest ends while the phone is locked or in another app. */
   notifyOnRestEnd: boolean;
+  /** Reminder a week after the last weigh-in, at `weighInHour` o'clock. */
+  weighInReminder: boolean;
+  weighInHour: number;
   onboarded: boolean;
 }

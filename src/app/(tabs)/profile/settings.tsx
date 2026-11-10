@@ -9,10 +9,12 @@ import { formatDate, formatRest, parseDate, parseNumber } from '@/domain/format'
 import type { Settings } from '@/domain/types';
 import { useDbQuery } from '@/hooks/use-db-query';
 import { useTheme } from '@/hooks/use-theme';
-import { ensureNotificationPermission } from '@/lib/rest-notification';
+import { ensureNotificationPermission } from '@/lib/notifications';
+import { refreshWeighInReminder } from '@/lib/weigh-in-reminder';
 
 const RESTS = [60, 90, 120, 180] as const;
 const GOALS = [2, 3, 4, 5, 6] as const;
+const WEIGH_IN_HOURS = [7, 8, 9, 20, 21] as const;
 
 /** S1: training defaults and body data. Every change is saved immediately. */
 export default function SettingsScreen() {
@@ -32,8 +34,17 @@ function SettingsForm({ initial }: { initial: Settings }) {
 
   const update = (changes: Partial<Settings>) => {
     setS({ ...s, ...changes });
-    saveSettings(db, changes);
+    saveSettings(db, changes).then(() => {
+      if ('weighInReminder' in changes || 'weighInHour' in changes) refreshWeighInReminder(db);
+    });
   };
+
+  /** Turning a reminder on asks for notification permission first. */
+  async function allow(on: boolean) {
+    if (on && !(await ensureNotificationPermission()) && Platform.OS !== 'web') {
+      Alert.alert('Notifications are off', 'Allow notifications for Workout Log in the phone settings.');
+    }
+  }
 
   return (
     <Screen>
@@ -43,13 +54,22 @@ function SettingsForm({ initial }: { initial: Settings }) {
         <Txt variant="small" tone="muted">
           Used for empty workouts and new exercises in a routine.
         </Txt>
-        <Segmented options={RESTS} value={s.defaultRestSeconds as (typeof RESTS)[number]} onChange={(v) => update({ defaultRestSeconds: v })} format={formatRest} />
+        <Segmented
+          options={RESTS}
+          value={s.defaultRestSeconds as (typeof RESTS)[number]}
+          onChange={(v) => update({ defaultRestSeconds: v })}
+          format={formatRest}
+        />
         <View style={[styles.divider, { backgroundColor: t.border }]} />
         <Txt style={{ fontWeight: '600' }}>Weekly goal</Txt>
         <Txt variant="small" tone="muted">
           Workouts per week. Used for &quot;This week&quot; and the streak.
         </Txt>
-        <Segmented options={GOALS} value={s.weeklyGoal as (typeof GOALS)[number]} onChange={(v) => update({ weeklyGoal: v })} />
+        <Segmented
+          options={GOALS}
+          value={s.weeklyGoal as (typeof GOALS)[number]}
+          onChange={(v) => update({ weeklyGoal: v })}
+        />
         <View style={[styles.divider, { backgroundColor: t.border }]} />
         <View style={styles.switchRow}>
           <Txt style={{ fontWeight: '600', flex: 1 }}>Vibrate when rest ends</Txt>
@@ -70,14 +90,45 @@ function SettingsForm({ initial }: { initial: Settings }) {
           <Switch
             value={s.notifyOnRestEnd}
             onValueChange={async (v) => {
-              if (v && !(await ensureNotificationPermission()) && Platform.OS !== 'web') {
-                Alert.alert('Notifications are off', 'Allow notifications for Workout Log in the phone settings.');
-              }
+              await allow(v);
               update({ notifyOnRestEnd: v });
             }}
             trackColor={{ true: t.accent, false: t.surfaceAlt }}
           />
         </View>
+      </Card>
+
+      <SectionLabel>Reminders</SectionLabel>
+      <Card>
+        <View style={styles.switchRow}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Txt style={{ fontWeight: '600' }}>Weekly weigh-in</Txt>
+            <Txt variant="small" tone="muted">
+              A notification a week after your last weigh-in.
+            </Txt>
+          </View>
+          <Switch
+            value={s.weighInReminder}
+            onValueChange={async (v) => {
+              await allow(v);
+              update({ weighInReminder: v });
+            }}
+            trackColor={{ true: t.accent, false: t.surfaceAlt }}
+            accessibilityLabel="Weekly weigh-in reminder"
+          />
+        </View>
+        {s.weighInReminder && (
+          <Segmented
+            options={WEIGH_IN_HOURS}
+            value={
+              (WEIGH_IN_HOURS as readonly number[]).includes(s.weighInHour)
+                ? (s.weighInHour as (typeof WEIGH_IN_HOURS)[number])
+                : 8
+            }
+            onChange={(v) => update({ weighInHour: v })}
+            format={(h) => `${h}:00`}
+          />
+        )}
       </Card>
 
       <SectionLabel>Body</SectionLabel>
@@ -99,7 +150,11 @@ function SettingsForm({ initial }: { initial: Settings }) {
             onEndEditing={() => !birthInvalid && update({ birthDate: parseDate(birth) })}
           />
         </View>
-        {birthInvalid && <Txt tone="danger" variant="small">Use DD/MM/YYYY.</Txt>}
+        {birthInvalid && (
+          <Txt tone="danger" variant="small">
+            Use DD/MM/YYYY.
+          </Txt>
+        )}
       </Card>
 
       <Txt variant="small" tone="muted" style={{ textAlign: 'center' }}>

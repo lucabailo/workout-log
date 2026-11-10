@@ -26,6 +26,7 @@ Designed first in Figma (wireframes → colour system → hi-fi screens in light
 - **Progressions:** an exercise can change every time its routine is done (4 × 12 → 4 × 9 → 4 × 6 → 4 × 3, then again), with the load in kg or in % of your one-rep max (estimated from your history or typed in)
 - **Programs:** put routines in a rotation (D → E → F → … → D) with optional routines done only once at the start; the app always shows which one is next
 - **Rest timer notification:** when the rest ends while the phone is locked or you're in another app, a local notification tells you the next set (no server, can be turned off in Settings)
+- **Weekly weigh-in reminder:** optional notification a week after your last weigh-in, at the hour you choose (re-planned every time you log one)
 - **Supersets:** link exercises in a routine (A1, A2…); ticking a set in a superset skips the rest timer until the round is done
 - **Never lose track of a workout:** a mini bar above the tabs shows the timer and the next set from any screen; a workout left open for hours asks whether to resume, save it (ending at the last ticked set) or discard it
 - **Log a workout:** or start an empty one and add exercises as you go; fill in weight and reps and tick each set off

@@ -844,6 +844,8 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultRestSeconds: 90,
   vibrateOnRestEnd: true,
   notifyOnRestEnd: true,
+  weighInReminder: false,
+  weighInHour: 8,
   onboarded: false,
 };
 

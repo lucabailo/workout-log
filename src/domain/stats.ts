@@ -161,3 +161,18 @@ export function monthGrid(year: number, month: number): (Date | null)[][] {
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
   return weeks;
 }
+
+/**
+ * When to remind about the weekly weigh-in: a week after the last one, at `hour` o'clock.
+ * If that moment has already passed (or there is no weigh-in yet), the next `hour` o'clock.
+ * `lastDay` is the day of the last measurement, "YYYY-MM-DD".
+ */
+export function nextWeighInReminder(lastDay: string | null, hour: number, now: Date = new Date()): Date {
+  const nextHour = new Date(now);
+  nextHour.setHours(hour, 0, 0, 0);
+  if (nextHour.getTime() <= now.getTime() + 60_000) nextHour.setDate(nextHour.getDate() + 1);
+  if (!lastDay) return nextHour;
+  const [y, m, d] = lastDay.slice(0, 10).split('-').map(Number);
+  const due = new Date(y, m - 1, d + 7, hour, 0, 0, 0);
+  return due.getTime() > now.getTime() + 60_000 ? due : nextHour;
+}
