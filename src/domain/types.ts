@@ -119,5 +119,7 @@ export interface Settings {
   weeklyGoal: number;
   defaultRestSeconds: number;
   vibrateOnRestEnd: boolean;
+  /** Notification when the rest ends while the phone is locked or in another app. */
+  notifyOnRestEnd: boolean;
   onboarded: boolean;
 }

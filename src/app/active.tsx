@@ -1,5 +1,5 @@
 import { Stack, router } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { RestTimer } from '@/components/rest-timer';
@@ -30,10 +30,12 @@ import { useDbQuery } from '@/hooks/use-db-query';
 import { useNow } from '@/hooks/use-now';
 import { useTheme } from '@/hooks/use-theme';
 import { confirm } from '@/lib/confirm';
+import { cancelRestEnd, scheduleRestEnd } from '@/lib/rest-notification';
 
 export default function ActiveWorkoutScreen() {
   const t = useTheme();
   const [restEndsAt, setRestEndsAt] = useState<number | null>(null);
+  const [nextUp, setNextUp] = useState<string | null>(null);
 
   const { data, db, reload } = useDbQuery(async (db) => {
     const workout = await getActiveWorkout(db);
@@ -63,6 +65,13 @@ export default function ActiveWorkoutScreen() {
 
   const elapsed = useElapsed(data?.workout.startedAt);
   const stopRest = useCallback((endsAt: number | null) => setRestEndsAt(endsAt), []);
+  const notify = data?.settings.notifyOnRestEnd ?? false;
+
+  // Mirror the on-screen timer with a notification for when the phone is locked or in another app.
+  useEffect(() => {
+    if (restEndsAt !== null && notify) scheduleRestEnd(restEndsAt, nextUp);
+    else cancelRestEnd();
+  }, [restEndsAt, nextUp, notify]);
 
   if (data === undefined) return <Loading />;
   if (data === null) {
@@ -85,7 +94,10 @@ export default function ActiveWorkoutScreen() {
   /** restSeconds is null inside a superset: go straight to the next exercise. */
   async function toggle(setId: number, wasDone: boolean, restSeconds: number | null) {
     await updateSet(db, setId, { completed: !wasDone });
-    if (!wasDone && restSeconds !== null) setRestEndsAt(restDeadline(restSeconds));
+    if (!wasDone && restSeconds !== null) {
+      setNextUp(nextSetAfter(blocks, setId));
+      setRestEndsAt(restDeadline(restSeconds));
+    }
     await reload();
   }
 
@@ -98,6 +110,7 @@ export default function ActiveWorkoutScreen() {
         true,
       );
       if (discard) {
+        await cancelRestEnd();
         await deleteWorkout(db, workout.id);
         router.back();
       }
@@ -109,6 +122,7 @@ export default function ActiveWorkoutScreen() {
         ? `${unticked} set${unticked === 1 ? ' is' : 's are'} not ticked off and will be dropped.`
         : 'Great work!';
     if (await confirm('Finish workout?', message, 'Finish')) {
+      await cancelRestEnd();
       await finishWorkout(db, workout.id);
       router.replace({ pathname: '/summary', params: { id: workout.id } });
     }
@@ -116,6 +130,7 @@ export default function ActiveWorkoutScreen() {
 
   async function discard() {
     if (await confirm('Discard workout?', 'Everything logged in this workout will be lost.', 'Discard', true)) {
+      await cancelRestEnd();
       await deleteWorkout(db, workout.id);
       router.back();
     }
@@ -262,6 +277,21 @@ function targetLine(today: TodayTargets, reserveRep: boolean) {
 /** "A1" → "A2": the exercise that follows in the same superset. */
 function nextLabel(label: string | undefined) {
   return label ? `${label[0]}${Number(label.slice(1)) + 1}` : undefined;
+}
+
+/** "Bench Press · set 3": the first set still to do, not counting the one just ticked. */
+function nextSetAfter(
+  blocks: {
+    exercise: { name: string };
+    sets: { id: number; completed: boolean; dropIndex: number; setIndex: number }[];
+  }[],
+  justTicked: number,
+): string | null {
+  for (const b of blocks) {
+    const s = b.sets.find((x) => x.dropIndex === 0 && !x.completed && x.id !== justTicked);
+    if (s) return `${b.exercise.name} · set ${s.setIndex}`;
+  }
+  return null;
 }
 
 /** When the rest period that starts now should end. */

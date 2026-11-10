@@ -1,6 +1,6 @@
 import { useSQLiteContext } from 'expo-sqlite';
 import { useState } from 'react';
-import { Switch, StyleSheet, View } from 'react-native';
+import { Alert, Platform, Switch, StyleSheet, View } from 'react-native';
 
 import { Card, DateField, Field, Loading, Screen, Segmented, SectionLabel, Txt } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
@@ -9,6 +9,7 @@ import { formatDate, formatRest, parseDate, parseNumber } from '@/domain/format'
 import type { Settings } from '@/domain/types';
 import { useDbQuery } from '@/hooks/use-db-query';
 import { useTheme } from '@/hooks/use-theme';
+import { ensureNotificationPermission } from '@/lib/rest-notification';
 
 const RESTS = [60, 90, 120, 180] as const;
 const GOALS = [2, 3, 4, 5, 6] as const;
@@ -55,6 +56,25 @@ function SettingsForm({ initial }: { initial: Settings }) {
           <Switch
             value={s.vibrateOnRestEnd}
             onValueChange={(v) => update({ vibrateOnRestEnd: v })}
+            trackColor={{ true: t.accent, false: t.surfaceAlt }}
+          />
+        </View>
+        <View style={[styles.divider, { backgroundColor: t.border }]} />
+        <View style={styles.switchRow}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Txt style={{ fontWeight: '600' }}>Notify when rest ends</Txt>
+            <Txt variant="small" tone="muted">
+              When the phone is locked or you are in another app.
+            </Txt>
+          </View>
+          <Switch
+            value={s.notifyOnRestEnd}
+            onValueChange={async (v) => {
+              if (v && !(await ensureNotificationPermission()) && Platform.OS !== 'web') {
+                Alert.alert('Notifications are off', 'Allow notifications for Workout Log in the phone settings.');
+              }
+              update({ notifyOnRestEnd: v });
+            }}
             trackColor={{ true: t.accent, false: t.surfaceAlt }}
           />
         </View>

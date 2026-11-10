@@ -843,6 +843,7 @@ export const DEFAULT_SETTINGS: Settings = {
   weeklyGoal: 3,
   defaultRestSeconds: 90,
   vibrateOnRestEnd: true,
+  notifyOnRestEnd: true,
   onboarded: false,
 };
 

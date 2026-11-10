@@ -7,6 +7,9 @@ import { DATABASE_NAME } from '@/db/db';
 import { migrate } from '@/db/schema';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useTheme } from '@/hooks/use-theme';
+import { setUpRestNotifications } from '@/lib/rest-notification';
+
+setUpRestNotifications();
 
 export default function RootLayout() {
   const scheme = useColorScheme();
