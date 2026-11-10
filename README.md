@@ -17,6 +17,8 @@ Designed first in Figma (wireframes → colour system → hi-fi screens in light
 
 **Try it on Android:** download the APK from the [latest release](https://github.com/lucabailo/workout-log/releases/latest) and open it on your phone (allow installing from unknown sources when asked).
 
+**Try it on iPhone (or any browser):** open [lucabailo.github.io/workout-log](https://lucabailo.github.io/workout-log/) in Safari, tap Share → **Add to Home Screen**. It runs full screen with its own icon and keeps its data on the phone. The web version has no notifications when the app is closed.
+
 ## Features
 
 - **Your plan as routines:** write each day once (Push, Pull, Legs…) with sets, rep range, optional target weight and rest time per exercise
@@ -105,6 +107,10 @@ npm run build:apk   # → WorkoutLog-<version>.apk in the project folder
 ```
 
 The script (`scripts/build-apk.ps1`) builds from `C:\wl`, because some generated C++ paths of React Native libraries exceed Windows' 260-character limit from deeper folders. Raise `android.versionCode` in `app.json` before each new build so it installs over the previous one.
+
+## Web version (GitHub Pages)
+
+Every push to `main` also publishes the web build (`.github/workflows/pages.yml`). SQLite runs in the browser as WebAssembly, which needs `SharedArrayBuffer` and therefore two cross-origin isolation headers. GitHub Pages can't send custom headers, so a small service worker ([coi-serviceworker](https://github.com/gzuidhof/coi-serviceworker), MIT) adds them; `scripts/prepare-pages.mjs` also adds the home-screen manifest and a `404.html` so links to any screen work.
 
 ## Tests and checks
 
